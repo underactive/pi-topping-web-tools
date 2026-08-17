@@ -7,7 +7,8 @@
  */
 
 import type { ExtensionContext } from "@earendil-works/pi-coding-agent";
-import { isPreapprovedHost } from "../permissions.ts";
+import { isPreapprovedHost, permissionKey } from "../permissions.ts";
+import { requestHostPermission } from "../permission-prompt.ts";
 
 export const MAX_URL_LENGTH = 2000;
 
@@ -91,18 +92,6 @@ export function upgradeHttpToHttps(url: string): string {
 	return url;
 }
 
-export function permissionKey(url: string): string {
-	try {
-		const parsed = new URL(url);
-		if (parsed.protocol === "file:") {
-			return `file://${parsed.pathname}`;
-		}
-		return `${parsed.protocol}//${parsed.host}`;
-	} catch {
-		return url;
-	}
-}
-
 export type PermissionResult = "allow" | `block:${string}`;
 
 export async function checkUrlPermission(
@@ -131,32 +120,19 @@ export async function checkUrlPermission(
 	}
 
 	const key = permissionKey(url);
-	const sessionDecision = sessionPermissions.get(key);
-	if (sessionDecision === "allow") {
+	const isDurable = protocol !== "file:";
+	const label = isDurable ? `Allow web_browser to ${hostname}?` : `Allow web_browser to local file ${pathname}?`;
+
+	const result = await requestHostPermission(ctx, {
+		scope: "web_browser",
+		label,
+		key,
+		sessionPermissions,
+		durable: isDurable,
+	});
+
+	if (result.allowed) {
 		return "allow";
 	}
-	if (sessionDecision === "deny") {
-		return `block:Denied by user for ${key}`;
-	}
-
-	if (!ctx.hasUI) {
-		return `block:web_browser to ${key} blocked (no UI for confirmation)`;
-	}
-
-	const label = protocol === "file:" ? `Allow web_browser to local file ${pathname}?` : `Allow web_browser to ${hostname}?`;
-	const choice = await ctx.ui.select(label, ["Allow once", "Allow for this session", "Deny"]);
-
-	if (choice === "Allow for this session") {
-		sessionPermissions.set(key, "allow");
-		return "allow";
-	}
-	if (choice === "Deny") {
-		sessionPermissions.set(key, "deny");
-		return `block:Denied by user for ${key}`;
-	}
-	if (choice === "Allow once") {
-		return "allow";
-	}
-
-	return `block:Denied by user for ${key}`;
+	return `block:${result.reason}`;
 }

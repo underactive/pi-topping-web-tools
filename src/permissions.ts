@@ -115,6 +115,18 @@ const { HOSTNAME_ONLY, PATH_PREFIXES } = (() => {
 	return { HOSTNAME_ONLY: hosts, PATH_PREFIXES: paths };
 })();
 
+export function permissionKey(url: string): string {
+	try {
+		const parsed = new URL(url);
+		if (parsed.protocol === "file:") {
+			return `file://${parsed.pathname}`;
+		}
+		return `${parsed.protocol}//${parsed.host}`;
+	} catch {
+		return url;
+	}
+}
+
 export function isPreapprovedHost(hostname: string, pathname: string): boolean {
 	if (HOSTNAME_ONLY.has(hostname)) return true;
 	const prefixes = PATH_PREFIXES.get(hostname);

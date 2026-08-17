@@ -34,7 +34,8 @@
 		"extensions": [
 			"./src/fetch-markdown.ts",
 			"./src/pdf-extract.ts",
-			"./src/web-browser/index.ts"
+			"./src/web-browser/index.ts",
+			"./src/web-permissions.ts"
 		]
 	},
 	"dependencies": {

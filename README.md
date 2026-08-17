@@ -137,11 +137,25 @@ JS dialogs (`alert`/`confirm`/`prompt`) are dismissed by default so they never b
 
 Commands:
 
-- `/browser` — show open/closed status, current URL, title, tab count, console/network/dialog counts, and session-approved host count
+- `/browser` — show open/closed status, current URL, title, tab count, console/network/dialog counts, session-approved host count, and saved durable host count
 - `/browser-close` — force close the browser
 - `/browser-screenshot` — save a full-page screenshot to a temp PNG file
 
 Status line: a footer segment (`browser: example.com`) appears while the browser is open.
+
+## Saved permissions
+
+When the host confirmation prompt offers a durable option ("Allow for 1 day", "Allow for 1 week", "Allow for 30 days"), the grant is persisted to `~/.pi/agent/web-permissions.json` (mode `0600`) and applies across all sessions and projects.
+
+- **Per-tool scope.** A `fetch_markdown` grant does not authorize `web_browser`, which executes JavaScript and drives interaction. Each tool scopes its grants independently.
+- **Exact origin.** Grants match `scheme://host[:port]` exactly — no subdomain wildcards, no cross-port or cross-scheme reuse.
+- **Max 30 days.** All grants expire; there is no indefinite option. Expired entries are pruned automatically.
+- **Local files excluded.** `file://` prompts never offer durable options; local-file access needs a path-scope design that is out of scope here.
+- **Headless behavior.** Active durable grants apply when there is no interactive UI (e.g. RPC or print mode). Without a grant, non-preapproved hosts remain blocked.
+
+Commands:
+
+- `/web-permissions` — list and revoke saved grants. Bundled preapproved hosts are not listed (they are code, not user grants).
 
 ## Security model (shared)
 

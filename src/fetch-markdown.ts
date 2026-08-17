@@ -17,8 +17,9 @@ import TurndownService from "turndown";
 import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { STATUS_CODES } from "node:http";
-import { isPreapprovedHost } from "./permissions.ts";
-import { MAX_URL_LENGTH, isLocalOrPrivateHost, permissionKey, upgradeHttpToHttps } from "./web-browser/permissions.ts";
+import { isPreapprovedHost, permissionKey } from "./permissions.ts";
+import { requestHostPermission } from "./permission-prompt.ts";
+import { MAX_URL_LENGTH, isLocalOrPrivateHost, upgradeHttpToHttps } from "./web-browser/permissions.ts";
 
 // --- Constants ---
 
@@ -646,37 +647,17 @@ export default function (pi: ExtensionAPI) {
 		}
 
 		const key = permissionKey(input.url);
-		const sessionDecision = sessionPermissions.get(key);
-		if (sessionDecision === "allow") {
-			return undefined;
+		const result = await requestHostPermission(ctx, {
+			scope: "fetch_markdown",
+			label: `Allow fetch_markdown from ${hostname}?`,
+			key,
+			sessionPermissions,
+			durable: true,
+		});
+		if (!result.allowed) {
+			return { block: true, reason: result.reason };
 		}
-		if (sessionDecision === "deny") {
-			return { block: true, reason: `Denied by user for ${hostname}` };
-		}
-
-		if (!ctx.hasUI) {
-			return { block: true, reason: `fetch_markdown to ${hostname} blocked (no UI for confirmation)` };
-		}
-
-		const choice = await ctx.ui.select(`Allow fetch_markdown from ${hostname}?`, [
-			"Allow once",
-			"Allow for this session",
-			"Deny",
-		]);
-
-		if (choice === "Allow for this session") {
-			sessionPermissions.set(key, "allow");
-			return undefined;
-		}
-		if (choice === "Deny") {
-			sessionPermissions.set(key, "deny");
-			return { block: true, reason: `Denied by user for ${hostname}` };
-		}
-		if (choice === "Allow once") {
-			return undefined;
-		}
-
-		return { block: true, reason: `Denied by user for ${hostname}` };
+		return undefined;
 	});
 
 	pi.on("session_shutdown", async () => {

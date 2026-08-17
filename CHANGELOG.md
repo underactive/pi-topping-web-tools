@@ -2,6 +2,12 @@
 
 ## [Unreleased]
 
+### Added
+
+- `fetch_markdown`, `pdf_extract`, `web_browser`: durable host permissions — the confirmation prompt now offers "Allow for 1 day", "Allow for 1 week", and "Allow for 30 days" options for remote (http/https) hosts. Grants are persisted to `~/.pi/agent/web-permissions.json` (per-tool scope, exact origin, max 30 days, `0600` mode) and apply across all sessions and projects. `file://` prompts remain session-only.
+- `/web-permissions` command: list and revoke saved durable grants. Bundled preapproved hosts are not listed.
+- `web_browser`: `/browser` command now shows the count of saved durable hosts in addition to session-approved hosts.
+
 ## [0.1.0] - 2026-08-17
 
 ### Added

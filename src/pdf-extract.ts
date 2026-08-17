@@ -17,9 +17,10 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { extractText, getDocumentProxy } from "unpdf";
-import { isPreapprovedHost } from "./permissions.ts";
+import { isPreapprovedHost, permissionKey } from "./permissions.ts";
+import { requestHostPermission } from "./permission-prompt.ts";
 import { getWithPermittedRedirects, isPermittedRedirect, sliceContent, validateURL } from "./fetch-markdown.ts";
-import { permissionKey, upgradeHttpToHttps } from "./web-browser/permissions.ts";
+import { upgradeHttpToHttps } from "./web-browser/permissions.ts";
 
 // --- Constants ---
 
@@ -475,28 +476,19 @@ async function promptForAccess(
 	label: string,
 	key: string,
 	sessionPermissions: Map<string, "allow" | "deny">,
+	durable: boolean,
 ): Promise<{ block: true; reason: string } | undefined> {
-	const sessionDecision = sessionPermissions.get(key);
-	if (sessionDecision === "allow") return undefined;
-	if (sessionDecision === "deny") return { block: true, reason: `Denied by user for ${key}` };
-
-	if (!ctx.hasUI) {
-		return { block: true, reason: `pdf_extract from ${key} blocked (no UI for confirmation)` };
+	const result = await requestHostPermission(ctx, {
+		scope: "pdf_extract",
+		label,
+		key,
+		sessionPermissions,
+		durable,
+	});
+	if (!result.allowed) {
+		return { block: true, reason: result.reason };
 	}
-
-	const choice = await ctx.ui.select(label, ["Allow once", "Allow for this session", "Deny"]);
-
-	if (choice === "Allow for this session") {
-		sessionPermissions.set(key, "allow");
-		return undefined;
-	}
-	if (choice === "Allow once") {
-		return undefined;
-	}
-	if (choice === "Deny") {
-		sessionPermissions.set(key, "deny");
-	}
-	return { block: true, reason: `Denied by user for ${key}` };
+	return undefined;
 }
 
 // --- Extension factory ---
@@ -527,6 +519,7 @@ export default function (pi: ExtensionAPI) {
 				`Allow pdf_extract from ${hostname}?`,
 				permissionKey(input.url),
 				sessionPermissions,
+				true,
 			);
 		}
 
@@ -544,6 +537,7 @@ export default function (pi: ExtensionAPI) {
 				`Allow pdf_extract to read local file ${target.path}?`,
 				`file://${target.path}`,
 				sessionPermissions,
+				false,
 			);
 		}
 

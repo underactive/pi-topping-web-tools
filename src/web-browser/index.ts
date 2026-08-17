@@ -30,6 +30,7 @@ import {
 	type TabInfo,
 } from "./browser-manager.ts";
 import { checkUrlPermission, upgradeHttpToHttps, validateURL } from "./permissions.ts";
+import { listGrants } from "../permission-store.ts";
 
 const ACTIONS = [
 	"navigate",
@@ -247,6 +248,7 @@ export default function (pi: ExtensionAPI) {
 				`  Network issues: ${info.networkCount}`,
 				`  Dialogs captured: ${info.dialogCount}`,
 				`  Session-approved hosts: ${sessionPermissions.size}`,
+				`  Saved hosts: ${listGrants().filter((g) => g.scope === "web_browser").length}`,
 			];
 			ctx.ui.notify(lines.join("\n"), "info");
 		},

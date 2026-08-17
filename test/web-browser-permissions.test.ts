@@ -174,7 +174,7 @@ test("fetch_markdown tool_call hook blocks non-preapproved host without UI", asy
 		{ type: "tool_call", toolCallId: "1", toolName: "fetch_markdown", input: { url: "https://evil.example/" } },
 		mockCtx(false),
 	);
-	assert.match(result?.reason ?? "", /fetch_markdown to evil\.example blocked/);
+	assert.match(result?.reason ?? "", /fetch_markdown to https:\/\/evil\.example blocked/);
 });
 
 test("web_browser tool_call hook blocks navigate to non-preapproved host without UI", async () => {
