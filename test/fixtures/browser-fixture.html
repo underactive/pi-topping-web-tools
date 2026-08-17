@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Browser Fixture</title>
+  <style>
+    body { font-family: sans-serif; padding: 2rem; }
+    #result { margin-top: 1rem; color: #333; }
+    #delayed { display: none; margin-top: 1rem; color: #006600; }
+    #typed-log { margin-top: 0.5rem; font-family: monospace; font-size: 0.875rem; }
+    #drag-source { width: 60px; height: 60px; background: #3498db; color: #fff; text-align: center; line-height: 60px; cursor: grab; user-select: none; }
+    #drop-target { width: 60px; height: 60px; background: #eee; border: 2px dashed #999; margin-top: 10px; text-align: center; line-height: 60px; }
+    #scroll-spacer { height: 2000px; }
+    #scroll-target { color: #006600; }
+    #test-frame { border: 1px solid #ccc; width: 300px; height: 100px; }
+  </style>
+</head>
+<body>
+  <h1 id="heading">Browser Test Fixture</h1>
+  <p id="status">Ready</p>
+  <input id="search" type="text" placeholder="Search…" />
+  <button id="submit">Submit</button>
+  <select id="test-select">
+    <option value="option1">Option 1</option>
+    <option value="option2">Option 2</option>
+    <option value="option3">Option 3</option>
+  </select>
+  <div id="result"></div>
+  <span id="hover-target" style="cursor: pointer; text-decoration: underline;">Hover me</span>
+  <div id="tooltip" style="display: none; margin-top: 0.5rem; padding: 0.5rem; background: #eee; border: 1px solid #ccc;">Tooltip visible</div>
+  <p id="delayed">Delayed content visible</p>
+  <input id="typed" type="text" placeholder="Type here…" />
+  <div id="typed-log"></div>
+  <div id="inserted-container"></div>
+
+  <input id="file-input" type="file" />
+  <div id="file-log"></div>
+
+  <button id="alert-btn">Alert</button>
+  <button id="confirm-btn">Confirm</button>
+  <button id="prompt-btn">Prompt</button>
+  <div id="dialog-result"></div>
+
+  <a id="popup-link" href="/?popup=1" target="_blank">Open popup</a>
+
+  <iframe id="test-frame" srcdoc="&lt;button id='frame-btn' onclick=&quot;document.getElementById('frame-result').textContent='frame-clicked'&quot;&gt;Click me&lt;/button&gt;&lt;div id='frame-result'&gt;&lt;/div&gt;"></iframe>
+
+  <div id="drag-source">Drag</div>
+  <div id="drop-target">Drop</div>
+  <div id="drag-result"></div>
+
+  <div id="scroll-spacer"></div>
+  <p id="scroll-target">Scroll target</p>
+
+  <script>
+    document.cookie = "fixture=test-value; path=/";
+    console.log("fixture-loaded");
+
+    setTimeout(function () {
+      document.getElementById("delayed").style.display = "block";
+    }, 400);
+
+    setTimeout(function () {
+      var container = document.getElementById("inserted-container");
+      var input = document.createElement("input");
+      input.id = "inserted-input";
+      input.type = "text";
+      container.appendChild(input);
+      var btn = document.createElement("button");
+      btn.id = "inserted-btn";
+      btn.textContent = "Inserted";
+      container.appendChild(btn);
+    }, 400);
+
+    function submitSearch() {
+      var value = document.getElementById("search").value;
+      document.getElementById("result").textContent = "Submitted: " + value;
+      document.getElementById("status").textContent = "Submitted";
+      console.log("submitted:" + value);
+    }
+
+    document.getElementById("submit").addEventListener("click", submitSearch);
+
+    document.getElementById("search").addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        submitSearch();
+      }
+    });
+
+    document.getElementById("hover-target").addEventListener("mouseover", function () {
+      document.getElementById("tooltip").style.display = "block";
+    });
+    document.getElementById("hover-target").addEventListener("mouseout", function () {
+      document.getElementById("tooltip").style.display = "none";
+    });
+
+    (function () {
+      var typed = document.getElementById("typed");
+      var log = document.getElementById("typed-log");
+      function appendLog(label) {
+        log.textContent = log.textContent + label + ";";
+      }
+      typed.addEventListener("keydown", function (e) {
+        appendLog("keydown:" + e.key);
+      });
+      typed.addEventListener("input", function () {
+        appendLog("input:" + typed.value);
+      });
+    })();
+
+    document.getElementById("file-input").addEventListener("change", function (e) {
+      var names = Array.prototype.map.call(e.target.files, function (f) { return f.name; });
+      document.getElementById("file-log").textContent = names.join(",");
+    });
+
+    document.getElementById("alert-btn").addEventListener("click", function () {
+      alert("hello");
+      document.getElementById("dialog-result").textContent = "alert:done";
+    });
+    document.getElementById("confirm-btn").addEventListener("click", function () {
+      var r = confirm("Are you sure?");
+      document.getElementById("dialog-result").textContent = "confirm:" + r;
+    });
+    document.getElementById("prompt-btn").addEventListener("click", function () {
+      var r = prompt("Enter value", "default");
+      document.getElementById("dialog-result").textContent = "prompt:" + r;
+    });
+
+    (function () {
+      var source = document.getElementById("drag-source");
+      var dragging = false;
+      source.addEventListener("mousedown", function () {
+        dragging = true;
+      });
+      document.addEventListener("mouseup", function (e) {
+        if (!dragging) return;
+        dragging = false;
+        var target = document.getElementById("drop-target");
+        var rect = target.getBoundingClientRect();
+        if (
+          e.clientX >= rect.left &&
+          e.clientX <= rect.right &&
+          e.clientY >= rect.top &&
+          e.clientY <= rect.bottom
+        ) {
+          document.getElementById("drag-result").textContent = "dropped";
+        }
+      });
+    })();
+  </script>
+</body>
+</html>

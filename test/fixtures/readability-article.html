@@ -1,0 +1,33 @@
+<!doctype html>
+<html>
+	<head>
+		<title>Understanding Cache Revalidation</title>
+	</head>
+	<body>
+		<nav>
+			<a href="/home">SiteNavHome</a>
+			<a href="/products">SiteNavProducts</a>
+			<a href="/pricing">SiteNavPricing</a>
+		</nav>
+		<aside>SidebarPromoText subscribe to our newsletter today</aside>
+		<article>
+			<h1>Understanding Cache Revalidation</h1>
+			<p>
+				HTTP caching lets clients reuse previously fetched responses instead of downloading
+				them again. When a cached response expires, the client does not need to throw it
+				away. Instead, it can ask the origin server whether the stored copy is still valid.
+			</p>
+			<p>
+				Conditional requests carry validators such as ETag and Last-Modified headers. If the
+				resource has not changed, the server answers with a 304 Not Modified status and an
+				empty body, saving bandwidth and time. If the resource has changed, the server sends
+				the fresh representation with a 200 status as usual.
+			</p>
+			<p>
+				This handshake is cheap for both sides and is the backbone of efficient content
+				delivery on the web. ArticleBodyMarkerText.
+			</p>
+		</article>
+		<footer>FooterCopyrightText all rights reserved</footer>
+	</body>
+</html>
