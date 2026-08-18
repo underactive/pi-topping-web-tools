@@ -63,7 +63,7 @@ Complements pi's built-in search-backed `web_fetch` with a lightweight, keyless 
 - **Readability extraction** — [@mozilla/readability](https://github.com/mozilla/readability) (via [linkedom](https://github.com/WebReflection/linkedom)) strips nav/footer/sidebar boilerplate from article pages by default; pass `raw: true` for the full page. Falls back to full-page conversion when a page doesn't look like an article
 - **15-minute LRU cache with revalidation** — faster repeat lookups; expired entries are revalidated with `If-None-Match`/`If-Modified-Since` when the server sent `ETag`/`Last-Modified`, so unchanged pages cost a 304 instead of a full download
 - **Strict redirect handling** — redirects that change host, scheme, or port, or that leave a preapproved path, return the redirect URL instead of being followed; call again to follow (`www.` prefixes are treated as the same host)
-- **Host confirmation** — prompts for non-preapproved hosts (session-scoped allow/deny)
+- **Host confirmation** — prompts for non-preapproved hosts (session or durable allow/deny; see Saved permissions)
 
 Usage notes:
 
@@ -79,11 +79,11 @@ Command: `/clear-fetch-markdown-cache` — clear the in-memory URL cache.
 
 PDFs are otherwise unreachable: `fetch_markdown` and pi's `web_fetch` classify `application/pdf` as binary, and the `read` tool cannot parse it. This tool extracts the text layer via [unpdf](https://github.com/unjs/unpdf) (a serverless build of Mozilla's PDF.js, keyless and with no native dependencies).
 
-- **Remote or local** — pass `url` for a remote PDF or `path` for an absolute path or `file://` URL; provide exactly one
+- **Remote or local** — pass `url` for a remote PDF or `path` for an absolute or relative path, or a `file://` URL; provide exactly one
 - **Page markers** — output is delimited with `--- Page N ---` so pages can be cited
 - **Page selection** — `pages` accepts `"3"`, `"1-5"`, or `"1,4,7-9"`; defaults to every page
 - **15-minute LRU cache** — the whole parse is cached, so a later `pages` or `offset` call reuses it; local files are re-read when their modification time changes
-- **Host and file confirmation** — remote URLs use the shared allowlist; local files inside the working directory are read without prompting, anything outside prompts (session-scoped allow/deny)
+- **Host and file confirmation** — remote URLs use the shared allowlist; local files inside the working directory are read without prompting, anything outside prompts (session-scoped allow/deny for local files; session or durable for remote URLs)
 
 Usage notes:
 
@@ -120,8 +120,8 @@ Single tool with an `action` parameter:
 | `go_back` / `go_forward` / `reload` | — | Browser history navigation / reload |
 | `scroll` | `selector?`, `frame?`, `deltaX?`, `deltaY?` | Scroll an element into view (`selector`) or scroll by pixel deltas (default `deltaY` = viewport height) |
 | `drag` | `selector`, `targetSelector`, `frame?` | Drag-and-drop from `selector` to `targetSelector` |
-| `upload_file` | `selector`, `files`, `frame?` | Set files on an `<input type=file>` (absolute paths) |
-| `set_dialog_behavior` | `dialogAction`, `promptText?` | Configure how future JS dialogs (alert/confirm/prompt) are resolved for the rest of the session (default: dismiss) |
+| `upload_file` | `selector`, `files`, `frame?` | Set files on an `<input type=file>` (absolute or relative paths) |
+| `set_dialog_behavior` | `dialogAction?`, `promptText?` | Configure how future JS dialogs (alert/confirm/prompt) are resolved for the rest of the session (default: dismiss) |
 | `get_dialog_logs` | — | Drain captured dialogs (type, message, default value, resolution) |
 | `list_tabs` | — | List open tabs (index, URL, title, active) |
 | `switch_tab` | `index` | Switch the active tab (from `list_tabs`) |
@@ -160,8 +160,8 @@ Commands:
 ## Security model (shared)
 
 - **Preapproved hosts**: common documentation and dev sites are allowed without prompting. The allowlist lives in `src/permissions.ts` and is shared by both tools.
-- **User confirmation**: other hosts prompt Allow once / Allow for this session / Deny.
-- **URL validation**: all tools reject embedded credentials and overlong URLs. `fetch_markdown` and `pdf_extract` additionally reject loopback, private, and link-local hosts and any non-HTTP(S) scheme on a `url`. `web_browser` accepts `localhost`, private IPs, and `file://` paths so it can drive local dev servers and local HTML — each still prompts for confirmation unless session-approved.
+- **User confirmation**: other hosts prompt Allow once / Allow for this session / Allow for 1 day / Allow for 1 week / Allow for 30 days / Deny.
+- **URL validation**: all tools reject embedded credentials and overlong URLs. `fetch_markdown` and `pdf_extract` additionally reject loopback, private, and link-local hosts and any non-HTTP(S) scheme on a `url`. `web_browser` accepts `localhost`, private IPs, and `file://` paths so it can drive local dev servers and local HTML — each still prompts for confirmation unless session-approved or covered by a saved durable grant.
 - **Local file resolution**: `pdf_extract` resolves a `path` through `realpath` before any check, so a symlink pointing outside the working directory is treated as outside and prompts. Directories, FIFOs, and devices are rejected, and the size limit is enforced from `stat` before any bytes are read.
 - **Isolated browser context**: each session uses a fresh Chromium context (no shared profile/cookies with your system browser).
 - **Untrusted content boundary**: `fetch_markdown` results are wrapped in `<untrusted-content url="…">` tags, and `pdf_extract` results in `<untrusted-content source="…">`, so the model treats fetched page and document text as data, not instructions.

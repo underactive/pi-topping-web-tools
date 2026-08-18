@@ -13,14 +13,13 @@ import {
 } from "@earendil-works/pi-coding-agent";
 import { StringEnum } from "@earendil-works/pi-ai";
 import { Text } from "@earendil-works/pi-tui";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, realpath, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { Type } from "typebox";
 import {
 	closeBrowserManager,
 	getBrowserManager,
-	type BrowserManager,
 	type ConsoleEntry,
 	type DialogEntry,
 	type NavigateResult,
@@ -30,7 +29,9 @@ import {
 	type TabInfo,
 } from "./browser-manager.ts";
 import { checkUrlPermission, upgradeHttpToHttps, validateURL } from "./permissions.ts";
+import { requestHostPermission } from "../permission-prompt.ts";
 import { listGrants } from "../permission-store.ts";
+import { isInsideCwd } from "../pdf-extract.ts";
 
 const ACTIONS = [
 	"navigate",
@@ -129,13 +130,25 @@ function formatTabs(tabs: TabInfo[]): string {
 		.join("\n");
 }
 
-async function wrapUntrustedContent(mgr: BrowserManager, text: string): Promise<string> {
-	const info = await mgr.getPageInfoAsync();
-	return `<untrusted-content url="${info.url}">\n${text}\n</untrusted-content>`;
+function wrapUntrustedContent(url: string, text: string): string {
+	const safeUrl = url.replaceAll('"', "%22");
+	return `<untrusted-content url="${safeUrl}">\n${text}\n</untrusted-content>`;
 }
 
 function isAbortError(err: unknown): boolean {
 	return err instanceof Error && (err.name === "AbortError" || err.message.includes("Aborted"));
+}
+
+function blockReason(permission: string): string {
+	return permission.startsWith("block:") ? permission.slice("block:".length) : permission;
+}
+
+async function resolveLocalFilePath(input: string): Promise<string> {
+	try {
+		return await realpath(resolve(input));
+	} catch {
+		throw new Error(`Cannot upload file: no such file "${input}"`);
+	}
 }
 
 async function truncateTextResult(
@@ -215,7 +228,7 @@ export default function (pi: ExtensionAPI) {
 		if (input.action === "navigate" && input.url) {
 			const permission = await checkUrlPermission(input.url, ctx, sessionPermissions);
 			if (permission !== "allow") {
-				return { block: true, reason: permission.slice(6) };
+				return { block: true, reason: blockReason(permission) };
 			}
 
 			return undefined;
@@ -225,7 +238,7 @@ export default function (pi: ExtensionAPI) {
 			const info = await getBrowserManager().getPageInfoAsync();
 			const permission = await checkUrlPermission(info.url, ctx, sessionPermissions);
 			if (permission !== "allow") {
-				return { block: true, reason: permission.slice(6) };
+				return { block: true, reason: blockReason(permission) };
 			}
 		}
 
@@ -632,8 +645,9 @@ export default function (pi: ExtensionAPI) {
 						const value = await mgr.evaluate(params.script, { signal });
 						const text = typeof value === "string" ? value : JSON.stringify(value, null, 2) ?? String(value);
 						const truncated = await truncateTextResult(text, { action });
+						const info = await mgr.getPageInfoAsync();
 						return {
-							content: [{ type: "text", text: await wrapUntrustedContent(mgr, truncated.text) }],
+							content: [{ type: "text", text: wrapUntrustedContent(info.url, truncated.text) }],
 							details: truncated.details,
 						};
 					}
@@ -641,8 +655,9 @@ export default function (pi: ExtensionAPI) {
 					case "get_content": {
 						const html = await mgr.content({ signal });
 						const truncated = await truncateTextResult(html, { action });
+						const info = await mgr.getPageInfoAsync();
 						return {
-							content: [{ type: "text", text: await wrapUntrustedContent(mgr, truncated.text) }],
+							content: [{ type: "text", text: wrapUntrustedContent(info.url, truncated.text) }],
 							details: truncated.details,
 						};
 					}
@@ -650,8 +665,9 @@ export default function (pi: ExtensionAPI) {
 					case "get_text": {
 						const text = await mgr.getText(params.selector, { timeout, signal, frame: params.frame });
 						const truncated = await truncateTextResult(text, { action });
+						const info = await mgr.getPageInfoAsync();
 						return {
-							content: [{ type: "text", text: await wrapUntrustedContent(mgr, truncated.text) }],
+							content: [{ type: "text", text: wrapUntrustedContent(info.url, truncated.text) }],
 							details: truncated.details,
 						};
 					}
@@ -659,8 +675,9 @@ export default function (pi: ExtensionAPI) {
 					case "get_markdown": {
 						const md = await mgr.getMarkdown({ timeout, signal });
 						const truncated = await truncateTextResult(md, { action });
+						const info = await mgr.getPageInfoAsync();
 						return {
-							content: [{ type: "text", text: await wrapUntrustedContent(mgr, truncated.text) }],
+							content: [{ type: "text", text: wrapUntrustedContent(info.url, truncated.text) }],
 							details: truncated.details,
 						};
 					}
@@ -696,8 +713,9 @@ export default function (pi: ExtensionAPI) {
 							frame: params.frame,
 						});
 						const truncated = await truncateTextResult(snapshot, { action });
+						const info = await mgr.getPageInfoAsync();
 						return {
-							content: [{ type: "text", text: await wrapUntrustedContent(mgr, truncated.text) }],
+							content: [{ type: "text", text: wrapUntrustedContent(info.url, truncated.text) }],
 							details: truncated.details,
 						};
 					}
@@ -709,8 +727,9 @@ export default function (pi: ExtensionAPI) {
 							action,
 							consoleCount: entries.length,
 						});
+						const info = await mgr.getPageInfoAsync();
 						return {
-							content: [{ type: "text", text: await wrapUntrustedContent(mgr, truncated.text) }],
+							content: [{ type: "text", text: wrapUntrustedContent(info.url, truncated.text) }],
 							details: truncated.details,
 						};
 					}
@@ -722,8 +741,9 @@ export default function (pi: ExtensionAPI) {
 							action,
 							networkCount: entries.length,
 						});
+						const info = await mgr.getPageInfoAsync();
 						return {
-							content: [{ type: "text", text: await wrapUntrustedContent(mgr, truncated.text) }],
+							content: [{ type: "text", text: wrapUntrustedContent(info.url, truncated.text) }],
 							details: truncated.details,
 						};
 					}
@@ -761,8 +781,8 @@ export default function (pi: ExtensionAPI) {
 							const permission = await checkUrlPermission(cookieUrl, ctx, sessionPermissions);
 							if (permission !== "allow") {
 								return {
-									content: [{ type: "text", text: permission.slice(6) }],
-									details: { action, error: permission.slice(6) } satisfies WebBrowserDetails,
+									content: [{ type: "text", text: blockReason(permission) }],
+									details: { action, error: blockReason(permission) } satisfies WebBrowserDetails,
 									isError: true,
 								};
 							}
@@ -843,6 +863,24 @@ export default function (pi: ExtensionAPI) {
 								isError: true,
 							};
 						}
+						for (const file of params.files) {
+							const resolved = await resolveLocalFilePath(file);
+							if (isInsideCwd(resolved)) continue;
+							const permission = await requestHostPermission(ctx, {
+								scope: "web_browser",
+								label: `Allow web_browser to upload local file ${resolved}?`,
+								key: `file://${resolved}`,
+								sessionPermissions,
+								durable: false,
+							});
+							if (!permission.allowed) {
+								return {
+									content: [{ type: "text", text: permission.reason }],
+									details: { action, error: permission.reason } satisfies WebBrowserDetails,
+									isError: true,
+								};
+							}
+						}
 						const msg = await mgr.uploadFile(params.selector, params.files, {
 							frame: params.frame,
 							timeout,
@@ -872,8 +910,9 @@ export default function (pi: ExtensionAPI) {
 							action,
 							dialogCount: entries.length,
 						});
+						const info = await mgr.getPageInfoAsync();
 						return {
-							content: [{ type: "text", text: await wrapUntrustedContent(mgr, truncated.text) }],
+							content: [{ type: "text", text: wrapUntrustedContent(info.url, truncated.text) }],
 							details: truncated.details,
 						};
 					}

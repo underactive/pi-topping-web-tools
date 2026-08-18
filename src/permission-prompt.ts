@@ -13,16 +13,7 @@ export type PermissionPromptResult = { allowed: true } | { allowed: false; reaso
 
 type SessionPermissions = Map<string, "allow" | "deny">;
 
-/**
- * Request permission to access a host.
- *
- * Order of checks: session deny → session allow → durable grant → UI prompt.
- *
- * When `durable` is true and UI is available, the prompt includes
- * "Allow for 1 day", "Allow for 1 week", "Allow for 30 days" options.
- * When `durable` is false (e.g. file:// origins), only the original
- * three options are shown.
- */
+/** Prompt the user for host access; `durable` adds 1-day/1-week/30-day options, otherwise session-only. */
 export async function requestHostPermission(
 	ctx: ExtensionContext,
 	{

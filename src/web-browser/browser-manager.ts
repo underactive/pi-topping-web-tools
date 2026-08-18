@@ -100,12 +100,6 @@ export type ScreenshotResult = {
 	fullPage: boolean;
 };
 
-/**
- * Async mutex that serializes browser operations.
- *
- * NOTE: `close()` and `forceClose()` bypass this mutex so shutdown is
- * never blocked by a queued or in-flight operation.
- */
 export class AsyncMutex {
 	private chain: Promise<void> = Promise.resolve();
 
@@ -714,15 +708,13 @@ export class BrowserManager {
 		let timerId: ReturnType<typeof setTimeout> | undefined;
 		const timer =
 			timeoutMs > 0
-				? Promise.resolve().then(
-						() =>
-							new Promise<never>((_, reject) => {
-								timerId = setTimeout(
-									() => reject(new Error("Close timed out")),
-									timeoutMs,
-								);
-							}),
-				  )
+				? new Promise<never>((_, reject) => {
+						timerId = setTimeout(
+							() => reject(new Error("Close timed out")),
+							timeoutMs,
+						);
+						if (typeof timerId.unref === "function") timerId.unref();
+				  })
 				: Promise.resolve();
 
 		try {
@@ -814,7 +806,8 @@ export class BrowserManager {
 		const diagnostics = await this.selectorDiagnostics(page, selector, frame);
 		const snippet = await this.pageSnippet(page);
 		const frameNote = frame ? ` within frame "${frame}"` : "";
-		return `No element matches selector "${selector}"${frameNote}. ${diagnostics}\nPage snippet:\n<untrusted-content url="${page.url()}">\n${snippet.replaceAll("</untrusted-content", "")}\n</untrusted-content>`;
+		const safeUrl = page.url().replaceAll('"', "%22");
+		return `No element matches selector "${selector}"${frameNote}. ${diagnostics}\nPage snippet:\n<untrusted-content url="${safeUrl}">\n${snippet.replaceAll("</untrusted-content", "")}\n</untrusted-content>`;
 	}
 
 	private async ensureLaunched(): Promise<void> {
@@ -910,12 +903,6 @@ export class BrowserManager {
 		});
 	}
 
-	/**
-	 * Registering a `dialog` listener switches Playwright from auto-dismiss
-	 * to "must be resolved" — an unhandled dialog freezes all further
-	 * actions on the page, so this unconditionally accepts or dismisses
-	 * based on the configured session behavior.
-	 */
 	private attachDialogListener(page: Page): void {
 		page.on("dialog", (dialog) => {
 			const entry: DialogEntry = {
@@ -939,22 +926,22 @@ export class BrowserManager {
 
 	private pushConsole(entry: ConsoleEntry): void {
 		this.consoleBuffer.push(entry);
-		if (this.consoleBuffer.length > MAX_BUFFER_ENTRIES) {
-			this.consoleBuffer.shift();
+		if (this.consoleBuffer.length >= MAX_BUFFER_ENTRIES) {
+			this.consoleBuffer = this.consoleBuffer.slice(MAX_BUFFER_ENTRIES >> 1);
 		}
 	}
 
 	private pushNetwork(entry: NetworkEntry): void {
 		this.networkBuffer.push(entry);
-		if (this.networkBuffer.length > MAX_BUFFER_ENTRIES) {
-			this.networkBuffer.shift();
+		if (this.networkBuffer.length >= MAX_BUFFER_ENTRIES) {
+			this.networkBuffer = this.networkBuffer.slice(MAX_BUFFER_ENTRIES >> 1);
 		}
 	}
 
 	private pushDialog(entry: DialogEntry): void {
 		this.dialogBuffer.push(entry);
-		if (this.dialogBuffer.length > MAX_BUFFER_ENTRIES) {
-			this.dialogBuffer.shift();
+		if (this.dialogBuffer.length >= MAX_BUFFER_ENTRIES) {
+			this.dialogBuffer = this.dialogBuffer.slice(MAX_BUFFER_ENTRIES >> 1);
 		}
 	}
 

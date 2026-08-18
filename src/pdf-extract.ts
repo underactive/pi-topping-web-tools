@@ -1,15 +1,6 @@
-/**
- * pdf_extract — extract a text layer from remote or local PDFs.
- *
- * Fills a gap the other web tools cannot: fetch_markdown classifies application/pdf
- * as binary and pi's read tool cannot parse PDFs at all.
- *
- * Security: remote URLs reuse fetch_markdown's validation, redirect rules, and the
- * preapproved-host allowlist. Local paths are resolved through realpath before any
- * check so symlinks cannot escape, and only files inside cwd skip the prompt.
- */
+/** Security: remote URLs reuse fetch_markdown's validation, redirect rules, and preapproved-host allowlist; local paths are realpath-resolved and only files inside cwd skip the prompt. */
 
-import { defineTool, formatSize, type ExtensionAPI, type ExtensionContext } from "@earendil-works/pi-coding-agent";
+import { defineTool, formatSize, type ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Text } from "@earendil-works/pi-tui";
 import { LRUCache } from "lru-cache";
 import { basename, isAbsolute, relative, resolve } from "node:path";
@@ -17,12 +8,11 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { Type } from "typebox";
 import { extractText, getDocumentProxy } from "unpdf";
+import { combineSignals } from "./abort-utils.ts";
 import { isPreapprovedHost, permissionKey } from "./permissions.ts";
 import { requestHostPermission } from "./permission-prompt.ts";
 import { getWithPermittedRedirects, isPermittedRedirect, sliceContent, validateURL } from "./fetch-markdown.ts";
 import { upgradeHttpToHttps } from "./web-browser/permissions.ts";
-
-// --- Constants ---
 
 const MAX_PDF_BYTES = 25 * 1024 * 1024;
 const MAX_PDF_PAGES = 2000;
@@ -34,8 +24,6 @@ const MAX_CACHE_SIZE_BYTES = 50 * 1024 * 1024;
 const PDF_MAGIC = "%PDF-";
 // The PDF spec tolerates leading bytes before the header, and so does PDF.js.
 const MAGIC_SEARCH_WINDOW = 1024;
-
-// --- Cache ---
 
 type PdfCacheEntry = {
 	pages: string[];
@@ -72,24 +60,6 @@ export function _cleanup(): void {
 	_activeFetches.clear();
 }
 
-// --- Helpers ---
-
-function combineSignals(userSignal: AbortSignal | undefined): { signal: AbortSignal; cleanup: () => void } {
-	const controller = new AbortController();
-	const timer = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
-	if (typeof timer.unref === "function") timer.unref();
-	controller.signal.addEventListener("abort", () => clearTimeout(timer), { once: true });
-	_activeFetches.add(controller);
-	const signal = userSignal ? AbortSignal.any([userSignal, controller.signal]) : controller.signal;
-	return {
-		signal,
-		cleanup: () => {
-			clearTimeout(timer);
-			_activeFetches.delete(controller);
-		},
-	};
-}
-
 async function withTimeout<T>(promise: Promise<T>, ms: number, message: string): Promise<T> {
 	let timer: ReturnType<typeof setTimeout> | undefined;
 	try {
@@ -97,7 +67,7 @@ async function withTimeout<T>(promise: Promise<T>, ms: number, message: string):
 			promise,
 			new Promise<never>((_resolve, reject) => {
 				timer = setTimeout(() => reject(new Error(message)), ms);
-				if (typeof timer.unref === "function") timer.unref();
+				timer.unref();
 			}),
 		]);
 	} finally {
@@ -178,7 +148,7 @@ export async function resolveLocalPdf(input: string): Promise<LocalPdfTarget> {
 }
 
 async function fetchPdfBytes(url: string, userSignal: AbortSignal | undefined): Promise<Uint8Array> {
-	const { signal, cleanup } = combineSignals(userSignal);
+	const { signal, cleanup } = combineSignals(userSignal, FETCH_TIMEOUT_MS, _activeFetches);
 	let response: Awaited<ReturnType<typeof getWithPermittedRedirects>>;
 	try {
 		response = await getWithPermittedRedirects(url, signal, isPermittedRedirect, {
@@ -290,8 +260,6 @@ async function loadPdf(
 	return { ...entry, cached: false, source };
 }
 
-// --- Tool ---
-
 interface PdfExtractDetails {
 	source: string;
 	totalPages: number;
@@ -400,9 +368,10 @@ Usage notes:
 		const offset = Math.max(0, Math.floor(params.offset ?? 0));
 		const slice = sliceContent(body, offset);
 		const sanitizedText = slice.text.replaceAll("</untrusted-content", "");
+		const safeSource = source.replaceAll('"', "%22");
 
 		return {
-			content: [{ type: "text" as const, text: `<untrusted-content source="${source}">\n${sanitizedText}\n</untrusted-content>` }],
+			content: [{ type: "text" as const, text: `<untrusted-content source="${safeSource}">\n${sanitizedText}\n</untrusted-content>` }],
 			details: {
 				...baseDetails,
 				totalChars: slice.totalChars,
@@ -469,30 +438,6 @@ Usage notes:
 	},
 });
 
-// --- Permission gating ---
-
-async function promptForAccess(
-	ctx: ExtensionContext,
-	label: string,
-	key: string,
-	sessionPermissions: Map<string, "allow" | "deny">,
-	durable: boolean,
-): Promise<{ block: true; reason: string } | undefined> {
-	const result = await requestHostPermission(ctx, {
-		scope: "pdf_extract",
-		label,
-		key,
-		sessionPermissions,
-		durable,
-	});
-	if (!result.allowed) {
-		return { block: true, reason: result.reason };
-	}
-	return undefined;
-}
-
-// --- Extension factory ---
-
 export default function (pi: ExtensionAPI) {
 	const sessionPermissions = new Map<string, "allow" | "deny">();
 
@@ -514,13 +459,17 @@ export default function (pi: ExtensionAPI) {
 				return undefined;
 			}
 			if (isPreapprovedHost(hostname, pathname)) return undefined;
-			return promptForAccess(
-				ctx,
-				`Allow pdf_extract from ${hostname}?`,
-				permissionKey(input.url),
+			const result = await requestHostPermission(ctx, {
+				scope: "pdf_extract",
+				label: `Allow pdf_extract from ${hostname}?`,
+				key: permissionKey(input.url),
 				sessionPermissions,
-				true,
-			);
+				durable: true,
+			});
+			if (!result.allowed) {
+				return { block: true, reason: result.reason };
+			}
+			return undefined;
 		}
 
 		if (input.path) {
@@ -532,13 +481,17 @@ export default function (pi: ExtensionAPI) {
 			}
 			// Files in the working directory carry the same trust as the read tool.
 			if (isInsideCwd(target.path)) return undefined;
-			return promptForAccess(
-				ctx,
-				`Allow pdf_extract to read local file ${target.path}?`,
-				`file://${target.path}`,
+			const result = await requestHostPermission(ctx, {
+				scope: "pdf_extract",
+				label: `Allow pdf_extract to read local file ${target.path}?`,
+				key: `file://${target.path}`,
 				sessionPermissions,
-				false,
-			);
+				durable: false,
+			});
+			if (!result.allowed) {
+				return { block: true, reason: result.reason };
+			}
+			return undefined;
 		}
 
 		return undefined;

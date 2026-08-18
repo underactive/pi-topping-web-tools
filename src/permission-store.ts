@@ -53,18 +53,6 @@ function isValidScope(scope: string): scope is PermissionScope {
 	return scope === "fetch_markdown" || scope === "pdf_extract" || scope === "web_browser";
 }
 
-function validateGrant(entry: unknown): entry is Grant {
-	if (typeof entry !== "object" || entry === null) return false;
-	const g = entry as Record<string, unknown>;
-	if (!isValidScope(g.scope as string)) return false;
-	if (typeof g.origin !== "string") return false;
-	if (typeof g.grantedAt !== "number" || !Number.isFinite(g.grantedAt)) return false;
-	if (typeof g.expiresAt !== "number" || !Number.isFinite(g.expiresAt)) return false;
-	if (g.expiresAt <= Date.now()) return false; // expired
-	if (normalizeOrigin(g.origin as string) !== g.origin) return false; // malformed origin
-	return true;
-}
-
 /** Read and validate the store file. Returns empty list on any parse/validation failure. */
 export function listGrants(): Grant[] {
 	let raw: string;
@@ -138,6 +126,8 @@ async function acquireLock(): Promise<boolean> {
 				if (Date.now() - mtimeMs > LOCK_STALE_MS) {
 					// Stale lock — take it over.
 					await writeFile(lp, String(process.pid), { flag: "w" });
+					// Verify the takeover won (another process may have raced us).
+					if (readFileSync(lp, "utf-8") !== String(process.pid)) continue;
 					return true;
 				}
 			} catch {

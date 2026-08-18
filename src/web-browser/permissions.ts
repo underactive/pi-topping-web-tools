@@ -45,6 +45,37 @@ export function validateURL(url: string): boolean {
 	return parsed.protocol === "http:" || parsed.protocol === "https:";
 }
 
+function isPrivateIpv4Octets(octets: number[]): boolean {
+	if (octets.some((n) => n > 255)) {
+		return false;
+	}
+	const [a, b] = octets;
+	return (
+		a === 127 ||
+		a === 0 ||
+		a === 10 ||
+		(a === 172 && b >= 16 && b <= 31) ||
+		(a === 192 && b === 168) ||
+		(a === 169 && b === 254)
+	);
+}
+
+function mappedIpv4Octets(suffix: string): number[] | undefined {
+	// Dotted-quad form: ::ffff:10.0.0.1
+	const dotted = /^(\d{1,3}(?:\.\d{1,3}){3})$/.exec(suffix);
+	if (dotted) {
+		return dotted[1].split(".").map((part) => Number.parseInt(part, 10));
+	}
+	// Two hex groups form: ::ffff:a00:1
+	const hex = /^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/i.exec(suffix);
+	if (hex) {
+		const high = Number.parseInt(hex[1], 16);
+		const low = Number.parseInt(hex[2], 16);
+		return [high >> 8, high & 0xff, low >> 8, low & 0xff];
+	}
+	return undefined;
+}
+
 export function isLocalOrPrivateHost(hostname: string): boolean {
 	const host =
 		hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
@@ -55,28 +86,23 @@ export function isLocalOrPrivateHost(hostname: string): boolean {
 	if (host.endsWith(".local")) {
 		return true;
 	}
-	if (/^(fc|fd|fe80:)/i.test(host) || /^::ffff:7f/i.test(host)) {
+	if (/^(fc|fd|fe80:)/i.test(host)) {
 		return true;
+	}
+
+	const mapped = /^::ffff:(.+)$/i.exec(host);
+	if (mapped) {
+		const octets = mappedIpv4Octets(mapped[1]);
+		if (octets && isPrivateIpv4Octets(octets)) {
+			return true;
+		}
 	}
 
 	if (!/^\d{1,3}(?:\.\d{1,3}){3}$/.test(host)) {
 		return false;
 	}
 
-	const octets = host.split(".").map((part) => Number.parseInt(part, 10));
-	if (octets.some((n) => n > 255)) {
-		return false;
-	}
-
-	const [a, b] = octets;
-	if (a === 127) return true;
-	if (a === 0) return true;
-	if (a === 10) return true;
-	if (a === 172 && b >= 16 && b <= 31) return true;
-	if (a === 192 && b === 168) return true;
-	if (a === 169 && b === 254) return true;
-
-	return false;
+	return isPrivateIpv4Octets(host.split(".").map((part) => Number.parseInt(part, 10)));
 }
 
 export function upgradeHttpToHttps(url: string): string {
