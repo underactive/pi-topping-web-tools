@@ -1,12 +1,23 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.0] - 2026-08-18
 
 ### Added
 
 - `fetch_markdown`, `pdf_extract`, `web_browser`: durable host permissions — the confirmation prompt now offers "Allow for 1 day", "Allow for 1 week", and "Allow for 30 days" options for remote (http/https) hosts. Grants are persisted to `~/.pi/agent/web-permissions.json` (per-tool scope, exact origin, max 30 days, `0600` mode) and apply across all sessions and projects. `file://` prompts remain session-only.
 - `/web-permissions` command: list and revoke saved durable grants. Bundled preapproved hosts are not listed.
 - `web_browser`: `/browser` command now shows the count of saved durable hosts in addition to session-approved hosts.
+
+### Changed
+
+- `fetch_markdown`, `pdf_extract`: consolidated shared fetch plumbing — `combineSignals` extracted to `src/abort-utils.ts` (built on `AbortSignal.timeout`), single-use helpers inlined.
+
+### Fixed
+
+- `fetch_markdown`, `pdf_extract`, `web_browser`: double quotes in URLs/sources interpolated into `<untrusted-content>` attributes are escaped, so a crafted URL cannot break out of the tag.
+- `fetch_markdown`, `pdf_extract`: private IPv4-mapped IPv6 addresses (dotted-quad and hex forms) are now detected and rejected as local/private hosts.
+- `web_browser`: `upload_file` now prompts for confirmation before reading files outside the working directory.
+- Durable permission store: stale locks are verified before takeover, closing a race between concurrent sessions writing `web-permissions.json`.
 
 ## [0.1.0] - 2026-08-17
 

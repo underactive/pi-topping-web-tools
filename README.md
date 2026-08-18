@@ -120,7 +120,7 @@ Single tool with an `action` parameter:
 | `go_back` / `go_forward` / `reload` | — | Browser history navigation / reload |
 | `scroll` | `selector?`, `frame?`, `deltaX?`, `deltaY?` | Scroll an element into view (`selector`) or scroll by pixel deltas (default `deltaY` = viewport height) |
 | `drag` | `selector`, `targetSelector`, `frame?` | Drag-and-drop from `selector` to `targetSelector` |
-| `upload_file` | `selector`, `files`, `frame?` | Set files on an `<input type=file>` (absolute or relative paths) |
+| `upload_file` | `selector`, `files`, `frame?` | Set files on an `<input type=file>` (absolute or relative paths; prompts when a file is outside the working directory) |
 | `set_dialog_behavior` | `dialogAction?`, `promptText?` | Configure how future JS dialogs (alert/confirm/prompt) are resolved for the rest of the session (default: dismiss) |
 | `get_dialog_logs` | — | Drain captured dialogs (type, message, default value, resolution) |
 | `list_tabs` | — | List open tabs (index, URL, title, active) |
@@ -162,7 +162,7 @@ Commands:
 - **Preapproved hosts**: common documentation and dev sites are allowed without prompting. The allowlist lives in `src/permissions.ts` and is shared by both tools.
 - **User confirmation**: other hosts prompt Allow once / Allow for this session / Allow for 1 day / Allow for 1 week / Allow for 30 days / Deny.
 - **URL validation**: all tools reject embedded credentials and overlong URLs. `fetch_markdown` and `pdf_extract` additionally reject loopback, private, and link-local hosts and any non-HTTP(S) scheme on a `url`. `web_browser` accepts `localhost`, private IPs, and `file://` paths so it can drive local dev servers and local HTML — each still prompts for confirmation unless session-approved or covered by a saved durable grant.
-- **Local file resolution**: `pdf_extract` resolves a `path` through `realpath` before any check, so a symlink pointing outside the working directory is treated as outside and prompts. Directories, FIFOs, and devices are rejected, and the size limit is enforced from `stat` before any bytes are read.
+- **Local file resolution**: `pdf_extract` resolves a `path` through `realpath` before any check, so a symlink pointing outside the working directory is treated as outside and prompts. Directories, FIFOs, and devices are rejected, and the size limit is enforced from `stat` before any bytes are read. `web_browser` `upload_file` follows the same rule: files outside the working directory prompt for confirmation (session-scoped) before they are read.
 - **Isolated browser context**: each session uses a fresh Chromium context (no shared profile/cookies with your system browser).
 - **Untrusted content boundary**: `fetch_markdown` results are wrapped in `<untrusted-content url="…">` tags, and `pdf_extract` results in `<untrusted-content source="…">`, so the model treats fetched page and document text as data, not instructions.
 - **PDF resource limits**: extraction is bounded by download size, page count, and a timeout. Because the bundled PDF.js runs on the event loop rather than a worker, the timeout bounds extraction across its await points but cannot interrupt a fully synchronous parse — the size and page caps are the primary defence.
