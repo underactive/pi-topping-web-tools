@@ -50,17 +50,17 @@ function registerTool(): PdfTool {
 	return tool;
 }
 
-function stubFetch(body: BodyInit, headers: Record<string, string> = {}): { calls: () => number; restore: () => void } {
+function stubFetch(body: BodyInit, headers: Record<string, string> = {}): { calls: Array<{ init?: RequestInit }>; restore: () => void } {
 	const originalFetch = globalThis.fetch;
-	let count = 0;
-	globalThis.fetch = async () => {
-		count += 1;
+	const calls: Array<{ init?: RequestInit }> = [];
+	globalThis.fetch = async (_input: RequestInfo | URL, init?: RequestInit) => {
+		calls.push({ init });
 		return new Response(body, {
 			status: 200,
 			headers: { "content-type": "application/pdf", ...headers },
 		});
 	};
-	return { calls: () => count, restore: () => (globalThis.fetch = originalFetch) };
+	return { calls, restore: () => (globalThis.fetch = originalFetch) };
 }
 
 // --- parsePageRange ---
@@ -189,10 +189,32 @@ test("remote extraction is cached across calls", async () => {
 		const url = "https://example.com/doc.pdf";
 		const first = await tool.execute("1", { url }, undefined, () => {});
 		const second = await tool.execute("2", { url }, undefined, () => {});
-		assert.equal(stub.calls(), 1);
+		assert.equal(stub.calls.length, 1);
 		assert.equal(first.details?.cached, false);
 		assert.equal(second.details?.cached, true);
 		assert.ok((first.content[0]?.text ?? "").includes("ALPHA_PAGE_ONE"));
+	} finally {
+		stub.restore();
+	}
+});
+
+test("remote pdf_extract sends browser-like auxiliary headers alongside tool-specific overrides", async () => {
+	clearPdfExtractCache();
+	const tool = registerTool();
+	const stub = stubFetch(FIXTURE_BYTES);
+	try {
+		await tool.execute("1", { url: "https://example.com/test.pdf" }, undefined, () => {});
+		const headers = (stub.calls[0]?.init?.headers as Record<string, string>) ?? {};
+		// Tool-specific overrides still take effect.
+		assert.equal(headers["Accept"], "application/pdf,*/*");
+		assert.equal(headers["User-Agent"], "pi-pdf-extract/1.0");
+		// Browser-like auxiliary headers flow through from getBrowserHeaders().
+		assert.equal(headers["Accept-Language"], "en-US,en;q=0.9");
+		assert.equal(headers["Sec-Fetch-Dest"], "document");
+		assert.equal(headers["Sec-Fetch-Mode"], "navigate");
+		assert.equal(headers["Sec-Fetch-Site"], "none");
+		assert.equal(headers["Sec-Fetch-User"], "?1");
+		assert.equal(headers["Upgrade-Insecure-Requests"], "1");
 	} finally {
 		stub.restore();
 	}

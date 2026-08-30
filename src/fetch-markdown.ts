@@ -9,6 +9,7 @@ import { Readability } from "@mozilla/readability";
 import { parseHTML } from "linkedom";
 import { STATUS_CODES } from "node:http";
 import { combineSignals } from "./abort-utils.ts";
+import { getBrowserHeaders } from "./browser-headers.ts";
 import { isPreapprovedHost, permissionKey } from "./permissions.ts";
 import { requestHostPermission } from "./permission-prompt.ts";
 import { MAX_URL_LENGTH, isLocalOrPrivateHost, upgradeHttpToHttps } from "./web-browser/permissions.ts";
@@ -207,8 +208,7 @@ export async function getWithPermittedRedirects(
 		signal,
 		redirect: "manual",
 		headers: {
-			Accept: "text/markdown, text/html, */*",
-			"User-Agent": "pi-fetch-markdown/1.0",
+			...getBrowserHeaders(),
 			...extraHeaders,
 		},
 	});

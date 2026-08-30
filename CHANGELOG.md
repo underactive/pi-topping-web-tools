@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+
+- send browser-like HTTP headers (Accept, Accept-Language, User-Agent, Sec-Fetch-*, etc.) on fetch_markdown and pdf_extract requests to reduce blocking by User-Agent-based filters
+
 ## [0.2.0] - 2026-08-18
 
 ### Added

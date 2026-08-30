@@ -37,14 +37,14 @@ type StubResponse = {
 };
 
 function stubFetch(responses: StubResponse[]): {
-	urls: string[];
+	calls: Array<{ url: string; init?: RequestInit }>;
 	restore: () => void;
 } {
 	const originalFetch = globalThis.fetch;
-	const urls: string[] = [];
+	const calls: Array<{ url: string; init?: RequestInit }> = [];
 	let index = 0;
 	globalThis.fetch = async (input: RequestInfo | URL, init?: RequestInit) => {
-		urls.push(String(input));
+		calls.push({ url: String(input), init });
 		const next = responses[Math.min(index, responses.length - 1)];
 		index += 1;
 		if (!next) throw new Error("no stub response configured");
@@ -53,7 +53,7 @@ function stubFetch(responses: StubResponse[]): {
 			headers: { "content-type": "text/plain", ...next.headers },
 		});
 	};
-	return { urls, restore: () => (globalThis.fetch = originalFetch) };
+	return { calls, restore: () => (globalThis.fetch = originalFetch) };
 }
 
 test("isPermittedRedirect blocks cross-host redirects", () => {
@@ -90,7 +90,7 @@ test("permitted same-host redirect is followed", async () => {
 	try {
 		const result = await tool.execute("1", { url: "https://example.com/start" }, undefined, () => {});
 		assert.ok(result.content[0]?.text.includes("redirected content"));
-		assert.deepEqual(stub.urls, ["https://example.com/start", "https://example.com/final"]);
+		assert.deepEqual(stub.calls.map((c) => c.url), ["https://example.com/start", "https://example.com/final"]);
 	} finally {
 		stub.restore();
 	}
@@ -106,7 +106,7 @@ test("cross-host redirect yields REDIRECT DETECTED instead of following", async 
 		const result = await tool.execute("1", { url: "https://example.com/start" }, undefined, () => {});
 		assert.match(result.content[0]?.text ?? "", /REDIRECT DETECTED/);
 		assert.match(result.content[0]?.text ?? "", /https:\/\/other\.example\/evil/);
-		assert.equal(stub.urls.length, 1);
+		assert.equal(stub.calls.length, 1);
 	} finally {
 		stub.restore();
 	}
@@ -200,7 +200,7 @@ test("http URLs are requested as https", async () => {
 	const stub = stubFetch([{ body: "upgraded", status: 200 }]);
 	try {
 		const result = await tool.execute("1", { url: "http://example.com/upgrade-path" }, undefined, () => {});
-		assert.deepEqual(stub.urls, ["https://example.com/upgrade-path"]);
+		assert.deepEqual(stub.calls.map((c) => c.url), ["https://example.com/upgrade-path"]);
 		assert.ok(result.content[0]?.text.includes("upgraded"));
 	} finally {
 		stub.restore();
@@ -218,7 +218,7 @@ test("content-length header over the limit is rejected before reading the body",
 			tool.execute("1", { url: "https://example.com/too-big-header" }, undefined, () => {}),
 			/Response too large/,
 		);
-		assert.equal(stub.urls.length, 1);
+		assert.equal(stub.calls.length, 1);
 	} finally {
 		stub.restore();
 	}
@@ -272,6 +272,27 @@ test("already-aborted signal rejects the fetch and leaves no active fetches", as
 		assert.equal(_activeFetchCountForTests(), 0);
 	} finally {
 		globalThis.fetch = originalFetch;
+	}
+});
+
+test("fetch sends browser-like headers", async () => {
+	clearWebFetchCache();
+	const tool = registerTool();
+	const stub = stubFetch([{ body: "ok", status: 200 }]);
+	try {
+		await tool.execute("1", { url: "https://example.com/test" }, undefined, () => {});
+		const headers = (stub.calls[0]?.init?.headers as Record<string, string>) ?? {};
+		assert.ok(headers["User-Agent"].startsWith("Mozilla/5.0"), "User-Agent should be browser-like");
+		assert.ok(headers["Accept"].startsWith("text/html"), "Accept should be browser-like");
+		assert.equal(headers["Accept-Language"], "en-US,en;q=0.9");
+		assert.equal(headers["Sec-Fetch-Dest"], "document");
+		assert.equal(headers["Sec-Fetch-Mode"], "navigate");
+		assert.equal(headers["Sec-Fetch-Site"], "none");
+		assert.equal(headers["Sec-Fetch-User"], "?1");
+		assert.equal(headers["Upgrade-Insecure-Requests"], "1");
+		assert.equal(headers["DNT"], "1");
+	} finally {
+		stub.restore();
 	}
 });
 
