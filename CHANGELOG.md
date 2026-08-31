@@ -1,6 +1,6 @@
 # Changelog
 
-## [Unreleased]
+## [0.2.1] - 2026-08-31
 
 ### Added
 
@@ -8,7 +8,7 @@
 
 ### Changed
 
-- send browser-like HTTP headers (Accept, Accept-Language, User-Agent, Sec-Fetch-*, etc.) on fetch_markdown and pdf_extract requests to reduce blocking by User-Agent-based filters
+- `fetch_markdown`, `pdf_extract`: send browser-like HTTP headers (Accept, Accept-Language, User-Agent, Sec-Fetch-*, etc.) to reduce blocking by User-Agent-based filters; `PI_FETCH_USER_AGENT` overrides the default User-Agent.
 
 ## [0.2.0] - 2026-08-18
 
