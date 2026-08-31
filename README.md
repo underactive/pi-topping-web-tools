@@ -143,6 +143,27 @@ Commands:
 
 Status line: a footer segment (`browser: example.com`) appears while the browser is open.
 
+### Statusline feed
+
+`web_browser` also publishes its current state as a pi custom session entry, so [pi-topping-statusline](https://github.com/underactive/pi-topping-statusline) can render it without depending on this package:
+
+- Type: `pi-topping-web-tools/browser`
+- `label` (`text`): current hostname, `local file`, `ready`, or an empty string when closed
+- `open` (`number`): `1` when open, `0` when closed
+
+For example, subscribe to `label` with prefix `browser: ` and `text` format:
+
+```json
+{
+  "type": "pi-topping-web-tools/browser",
+  "field": "label",
+  "prefix": "browser: ",
+  "format": "text"
+}
+```
+
+Entries are published only when the state changes, except that the current state is republished immediately at session start and once after the first turn. Closing the browser publishes `{ "label": "", "open": 0 }` so consumers can clear stale labels. Set `PI_SUPPRESS_NOTIFICATIONS` to `1`, `true`, or `yes` (case-insensitive) to hide the native footer; feed publication continues.
+
 ## Saved permissions
 
 When the host confirmation prompt offers a durable option ("Allow for 1 day", "Allow for 1 week", "Allow for 30 days"), the grant is persisted to `~/.pi/agent/web-permissions.json` (mode `0600`) and applies across all sessions and projects.

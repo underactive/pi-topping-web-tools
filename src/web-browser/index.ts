@@ -32,6 +32,8 @@ import { checkUrlPermission, upgradeHttpToHttps, validateURL } from "./permissio
 import { requestHostPermission } from "../permission-prompt.ts";
 import { listGrants } from "../permission-store.ts";
 import { isInsideCwd } from "../pdf-extract.ts";
+import { suppressNotifications } from "../env.ts";
+import { publishBrowserState, registerBrowserFeeds } from "./feeds.ts";
 
 const ACTIONS = [
 	"navigate",
@@ -198,21 +200,41 @@ function browserStatus(ctx: ExtensionContext, text: string, tone: "success" | "m
 	return ctx.ui.theme.fg(tone, `browser: ${text}`);
 }
 
-function updateBrowserStatus(ctx: ExtensionContext, info: { url: string; title?: string }): void {
+export function browserLabel(url: string): string {
 	try {
-		const parsed = new URL(info.url);
-		const label = parsed.protocol === "file:" ? "local file" : parsed.hostname;
-		ctx.ui.setStatus("browser", browserStatus(ctx, label, "success"));
+		const parsed = new URL(url);
+		return parsed.protocol === "file:" ? "local file" : parsed.hostname || "ready";
 	} catch {
-		ctx.ui.setStatus("browser", browserStatus(ctx, "ready", "muted"));
+		return "ready";
+	}
+}
+
+function syncBrowserOpen(ctx: ExtensionContext, url: string): void {
+	const label = browserLabel(url);
+	publishBrowserState(label, 1);
+	if (!suppressNotifications()) {
+		ctx.ui.setStatus("browser", browserStatus(ctx, label, label === "ready" ? "muted" : "success"));
+	}
+}
+
+function syncBrowserClosed(ctx: ExtensionContext): void {
+	publishBrowserState("", 0);
+	if (!suppressNotifications()) {
+		ctx.ui.setStatus("browser", undefined);
 	}
 }
 
 export default function (pi: ExtensionAPI) {
 	const sessionPermissions = new Map<string, "allow" | "deny">();
+	registerBrowserFeeds(pi);
 
 	pi.on("session_start", async (_event, ctx) => {
-		ctx.ui.setStatus("browser", undefined);
+		const info = await getBrowserManager().getPageInfoAsync();
+		if (info.isOpen) {
+			syncBrowserOpen(ctx, info.url);
+		} else {
+			syncBrowserClosed(ctx);
+		}
 	});
 
 	pi.on("session_shutdown", async () => {
@@ -271,7 +293,7 @@ export default function (pi: ExtensionAPI) {
 		description: "Force close the headless browser",
 		handler: async (_args, ctx) => {
 			await closeBrowserManager();
-			ctx.ui.setStatus("browser", undefined);
+			syncBrowserClosed(ctx);
 			ctx.ui.notify("Browser closed", "info");
 		},
 	});
@@ -442,7 +464,7 @@ export default function (pi: ExtensionAPI) {
 			try {
 				if (action === "close") {
 					await closeBrowserManager();
-					ctx.ui.setStatus("browser", undefined);
+					syncBrowserClosed(ctx);
 					return {
 						content: [{ type: "text", text: "Browser closed." }],
 						details: { action } satisfies WebBrowserDetails,
@@ -470,7 +492,7 @@ export default function (pi: ExtensionAPI) {
 
 						const upgraded = upgradeHttpToHttps(params.url);
 						const result: NavigateResult = await mgr.navigate(upgraded, { timeout, signal });
-						updateBrowserStatus(ctx, result);
+						syncBrowserOpen(ctx, result.url);
 
 						const text = `Navigated to ${result.url}\nTitle: ${result.title}${result.statusCode ? `\nStatus: ${result.statusCode}` : ""}`;
 						return {
@@ -494,7 +516,7 @@ export default function (pi: ExtensionAPI) {
 							signal,
 						});
 						const info = await mgr.getPageInfoAsync();
-						updateBrowserStatus(ctx, info);
+						syncBrowserOpen(ctx, info.url);
 						const dims = `${shot.width}×${shot.height}`;
 						const dimsNote = `${dims}${shot.fullPage ? " (full page)" : ""}`;
 
@@ -940,7 +962,7 @@ export default function (pi: ExtensionAPI) {
 						}
 						const msg = await mgr.switchTab(params.index);
 						const info = await mgr.getPageInfoAsync();
-						updateBrowserStatus(ctx, info);
+						syncBrowserOpen(ctx, info.url);
 						return {
 							content: [{ type: "text", text: msg }],
 							details: { action, bytes: Buffer.byteLength(msg) } satisfies WebBrowserDetails,

@@ -2,6 +2,10 @@
 
 ## [Unreleased]
 
+### Added
+
+- `web_browser`: publishes browser state through the `pi-topping-web-tools/browser` custom session feed for statusline consumers. Truthy `PI_SUPPRESS_NOTIFICATIONS` values hide the native browser footer without suppressing feed entries.
+
 ### Changed
 
 - send browser-like HTTP headers (Accept, Accept-Language, User-Agent, Sec-Fetch-*, etc.) on fetch_markdown and pdf_extract requests to reduce blocking by User-Agent-based filters
