@@ -10,6 +10,7 @@
 
 - `web_browser`: inspects redirect targets before contact, follows approved top-level redirects one gated hop at a time, blocks redirected subresources, closes unapproved popups before activation, and restores the prior page after blocked client-side navigation.
 - `web_browser`: retains an Allow once navigation decision as a browser-session grant so the approved document and its later same-origin requests can pass request-level enforcement.
+- `web_browser`: treats bare and `www.` variants of a remote hostname as equivalent for session and durable egress grants, allowing redirects such as `apple.com` → `www.apple.com` without a second approval while keeping other subdomains gated.
 
 ## [0.2.1] - 2026-08-31
 

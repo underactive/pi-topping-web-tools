@@ -1,3 +1,4 @@
+import { isIP } from "node:net";
 import { isGranted } from "../permission-store.ts";
 import { isPreapprovedHost, permissionKey } from "../permissions.ts";
 
@@ -7,6 +8,22 @@ export type UrlPermissionChecker = (url: string) => boolean;
 
 function denied(reason: string): EgressDecision {
 	return { allow: false, reason };
+}
+
+function alternateWwwHostname(hostname: string): string | undefined {
+	const bareHostname = hostname.startsWith("www.") ? hostname.slice(4) : hostname;
+	const unbracketed = bareHostname.startsWith("[") && bareHostname.endsWith("]")
+		? bareHostname.slice(1, -1)
+		: bareHostname;
+	if (
+		!bareHostname.includes(".") ||
+		bareHostname === "localhost" ||
+		bareHostname.endsWith(".local") ||
+		isIP(unbracketed) !== 0
+	) {
+		return undefined;
+	}
+	return hostname.startsWith("www.") ? bareHostname : `www.${hostname}`;
 }
 
 /**
@@ -109,7 +126,21 @@ export function buildOriginChecker(
 		const sessionDecision = sessionPermissions.get(key);
 		if (sessionDecision === "deny") return false;
 		if (sessionDecision === "allow") return true;
+		if (parsed.protocol !== "file:" && isGranted("web_browser", key)) return true;
 
-		return parsed.protocol !== "file:" && isGranted("web_browser", key);
+		if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+			const alternateHostname = alternateWwwHostname(parsed.hostname);
+			if (alternateHostname) {
+				const alternateUrl = new URL(parsed.toString());
+				alternateUrl.hostname = alternateHostname;
+				const alternateKey = permissionKey(alternateUrl.toString());
+				const alternateDecision = sessionPermissions.get(alternateKey);
+				if (alternateDecision === "deny") return false;
+				if (alternateDecision === "allow") return true;
+				if (isGranted("web_browser", alternateKey)) return true;
+			}
+		}
+
+		return false;
 	};
 }

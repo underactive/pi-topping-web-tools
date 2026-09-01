@@ -133,8 +133,8 @@ Optional `timeout` (ms, default 30000) applies to navigation and to selector-bas
 
 `web_browser` enforces its permissions inside every fresh browser context:
 
-- Every HTTP(S) document, script, image, XHR/fetch, beacon, and other routed request is checked against the live preapproved, session, and durable permissions before the request is sent. Path-scoped preapprovals remain path-scoped; session and durable grants remain exact-origin grants.
-- Redirect responses are inspected before Chromium receives them. Approved top-level redirects are followed one gated hop at a time; a redirect to an unapproved URL returns `Blocked: redirect to <origin> requires approval`. Redirected subresources are blocked rather than followed and appear in network logs.
+- Every HTTP(S) document, script, image, XHR/fetch, beacon, and other routed request is checked against the live preapproved, session, and durable permissions before the request is sent. Path-scoped preapprovals remain path-scoped; session and durable grants remain exact-origin grants except that bare and `www.` host variants are treated as equivalent.
+- Redirect responses are inspected before Chromium receives them. Approved top-level redirects, including simple bare-domain ↔ `www.` redirects, are followed one gated hop at a time; a redirect to an unapproved URL returns `Blocked: redirect to <origin> requires approval`. Redirected subresources are blocked rather than followed and appear in network logs.
 - WebSocket handshakes use the same live permission check. Service workers are disabled so they cannot bypass request routing.
 - Client-side navigation and popup destinations are gated. A blocked popup is closed without becoming active, and a blocked same-tab navigation returns to the prior approved page.
 - `data:` and `blob:` subresources are allowed because they do not create network egress, while top-level `data:`/`blob:` documents are denied. `file:` documents require approval for the target path; local-file subresources are allowed only from an approved local-file page.
@@ -184,7 +184,7 @@ Entries are published only when the state changes, except that the current state
 When the host confirmation prompt offers a durable option ("Allow for 1 day", "Allow for 1 week", "Allow for 30 days"), the grant is persisted to `~/.pi/agent/web-permissions.json` (mode `0600`) and applies across all sessions and projects.
 
 - **Per-tool scope.** A `fetch_markdown` grant does not authorize `web_browser`, which executes JavaScript and drives interaction. Each tool scopes its grants independently.
-- **Exact origin.** Grants match `scheme://host[:port]` exactly — no subdomain wildcards, no cross-port or cross-scheme reuse.
+- **Exact origin.** Grants are stored as `scheme://host[:port]` and do not cross ports or schemes. For `web_browser` egress, only the bare and `www.` variants of the same remote hostname are equivalent; no other subdomains inherit the grant.
 - **Max 30 days.** All grants expire; there is no indefinite option. Expired entries are pruned automatically.
 - **Local files excluded.** `file://` prompts never offer durable options; local-file access needs a path-scope design that is out of scope here.
 - **Headless behavior.** Active durable grants apply when there is no interactive UI (e.g. RPC or print mode). Without a grant, non-preapproved hosts remain blocked.

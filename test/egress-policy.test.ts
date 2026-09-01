@@ -123,10 +123,44 @@ test("buildOriginChecker reads live session decisions", () => {
 	assert.equal(checker("file:///tmp/other.html"), false);
 });
 
+test("buildOriginChecker treats bare and www host grants as equivalent", () => {
+	const bareSession = new Map<string, "allow" | "deny">([
+		["https://apple.com", "allow"],
+	]);
+	const bareChecker = buildOriginChecker(bareSession);
+	assert.equal(bareChecker("https://www.apple.com/page"), true);
+	assert.equal(bareChecker("https://store.apple.com/page"), false);
+	assert.equal(bareChecker("http://www.apple.com/page"), false);
+	assert.equal(bareChecker("https://www.apple.com:8443/page"), false);
+
+	const wwwChecker = buildOriginChecker(
+		new Map<string, "allow" | "deny">([["https://www.example.com", "allow"]]),
+	);
+	assert.equal(wwwChecker("https://example.com/page"), true);
+
+	bareSession.set("https://www.apple.com", "deny");
+	assert.equal(bareChecker("https://www.apple.com/page"), false);
+});
+
+test("buildOriginChecker does not apply www equivalence to local or IP hosts", () => {
+	const checker = buildOriginChecker(
+		new Map<string, "allow" | "deny">([
+			["http://localhost:3000", "allow"],
+			["http://127.0.0.1:3000", "allow"],
+			["http://dev.local:3000", "allow"],
+		]),
+	);
+	assert.equal(checker("http://www.localhost:3000/"), false);
+	assert.equal(checker("http://www.127.0.0.1:3000/"), false);
+	assert.equal(checker("http://www.dev.local:3000/"), false);
+});
+
 test("buildOriginChecker reads durable grants and normalizes WebSocket schemes", async () => {
 	await addGrant("web_browser", "https://socket.example", DAY_MS);
 	const checker = buildOriginChecker(new Map());
 	assert.equal(checker("https://socket.example/path"), true);
+	assert.equal(checker("https://www.socket.example/path"), true);
 	assert.equal(checker("wss://socket.example/path"), true);
+	assert.equal(checker("wss://www.socket.example/path"), true);
 	assert.equal(checker("ws://socket.example/path"), false);
 });
