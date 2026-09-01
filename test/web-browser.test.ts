@@ -55,12 +55,18 @@ test("browser fixture integration", async () => {
 		const visibleText = await browser.getText();
 		assert.match(visibleText, /Browser Test Fixture/);
 
+		const visibleTextFromEmptySelector = await browser.getText("");
+		assert.match(visibleTextFromEmptySelector, /Browser Test Fixture/);
+
 		const markdown = await browser.getMarkdown();
 		assert.match(markdown, /Browser Test Fixture/);
 		assert.doesNotMatch(markdown, /<h1/);
 
 		const a11y = await browser.getAccessibilitySnapshot();
 		assert.match(a11y, /heading|Browser Test Fixture/i);
+
+		const a11yFromEmptySelector = await browser.getAccessibilitySnapshot({ selector: "" });
+		assert.match(a11yFromEmptySelector, /heading|Browser Test Fixture/i);
 
 		const waitMsg = await browser.waitFor({ selector: "#delayed", state: "visible", timeout: 5000 });
 		assert.match(waitMsg, /Wait satisfied/);

@@ -445,7 +445,7 @@ export class BrowserManager {
 			await this.ensureLaunched();
 			const page = this.page!;
 			const timeout = opts?.timeout ?? DEFAULT_NAVIGATION_TIMEOUT_MS;
-			const locator = this.resolveLocator(page, selector ?? "body", opts?.frame).first();
+			const locator = this.resolveLocator(page, selector || "body", opts?.frame).first();
 			return this.withAbort(opts?.signal, async () => locator.innerText({ timeout }));
 		});
 	}
@@ -471,7 +471,7 @@ export class BrowserManager {
 			await this.ensureLaunched();
 			const page = this.page!;
 			const timeout = opts?.timeout ?? DEFAULT_NAVIGATION_TIMEOUT_MS;
-			const selector = opts?.selector ?? "body";
+			const selector = opts?.selector || "body";
 			const locator = this.resolveLocator(page, selector, opts?.frame);
 			try {
 				const snapshot = await this.withAbort(opts?.signal, async () =>
