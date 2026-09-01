@@ -72,8 +72,9 @@ test("AsyncMutex serializes overlapping operations and drain waits for all", asy
 
 test("full-page screenshot width is clamped to MAX_FULL_PAGE_WIDTH", async () => {
 	const browser = new BrowserManager();
+	browser.setOriginChecker(() => true);
 	try {
-		await browser.navigate("about:blank");
+		await browser.navigate(`file://${fixturePath}`);
 		await browser.evaluate(
 			"document.body.innerHTML = '<div style=\"width: 3000px; height: 50px\"></div>'",
 		);
@@ -100,6 +101,7 @@ test("close(timeoutMs) resolves within the timeout when cleanup stalls", async (
 test("ensureLaunched recovers on the remaining tab when the active tab closes", async () => {
 	const fixture = await startFixtureServer();
 	const browser = new BrowserManager();
+	browser.setOriginChecker(() => true);
 	try {
 		await browser.navigate(fixture.url);
 		await browser.click("#popup-link");

@@ -28,9 +28,11 @@ import {
 	type SetCookieParam,
 	type TabInfo,
 } from "./browser-manager.ts";
+import { buildOriginChecker } from "./egress-policy.ts";
 import { checkUrlPermission, upgradeHttpToHttps, validateURL } from "./permissions.ts";
 import { requestHostPermission } from "../permission-prompt.ts";
 import { listGrants } from "../permission-store.ts";
+import { permissionKey } from "../permissions.ts";
 import { isInsideCwd } from "../pdf-extract.ts";
 import { suppressNotifications } from "../env.ts";
 import { publishBrowserState, registerBrowserFeeds } from "./feeds.ts";
@@ -226,10 +228,16 @@ function syncBrowserClosed(ctx: ExtensionContext): void {
 
 export default function (pi: ExtensionAPI) {
 	const sessionPermissions = new Map<string, "allow" | "deny">();
+	const originChecker = buildOriginChecker(sessionPermissions);
+	const getConfiguredBrowserManager = () => {
+		const manager = getBrowserManager();
+		manager.setOriginChecker(originChecker);
+		return manager;
+	};
 	registerBrowserFeeds(pi);
 
 	pi.on("session_start", async (_event, ctx) => {
-		const info = await getBrowserManager().getPageInfoAsync();
+		const info = await getConfiguredBrowserManager().getPageInfoAsync();
 		if (info.isOpen) {
 			syncBrowserOpen(ctx, info.url);
 		} else {
@@ -248,16 +256,22 @@ export default function (pi: ExtensionAPI) {
 		const input = event.input as { action?: string; url?: string };
 
 		if (input.action === "navigate" && input.url) {
-			const permission = await checkUrlPermission(input.url, ctx, sessionPermissions);
+			const upgraded = upgradeHttpToHttps(input.url);
+			const permission = await checkUrlPermission(upgraded, ctx, sessionPermissions);
 			if (permission !== "allow") {
 				return { block: true, reason: blockReason(permission) };
 			}
 
+			// A browser navigation must keep its approved origin available to
+			// request-level enforcement after the tool-call hook returns.
+			if (!originChecker(upgraded)) {
+				sessionPermissions.set(permissionKey(upgraded), "allow");
+			}
 			return undefined;
 		}
 
 		if (input.action === "evaluate") {
-			const info = await getBrowserManager().getPageInfoAsync();
+			const info = await getConfiguredBrowserManager().getPageInfoAsync();
 			const permission = await checkUrlPermission(info.url, ctx, sessionPermissions);
 			if (permission !== "allow") {
 				return { block: true, reason: blockReason(permission) };
@@ -271,7 +285,7 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Show headless browser status (open/closed, URL, title, console and network counts, session-approved hosts)",
 		handler: async (_args, ctx) => {
-			const browser = getBrowserManager();
+			const browser = getConfiguredBrowserManager();
 			const info = await browser.getPageInfoAsync();
 			const lines = [
 				"Web Browser:",
@@ -301,7 +315,7 @@ export default function (pi: ExtensionAPI) {
 	pi.registerCommand("browser-screenshot", {
 		description: "Save a full-page screenshot to a temp PNG file",
 		handler: async (_args, ctx) => {
-			const browser = getBrowserManager();
+			const browser = getConfiguredBrowserManager();
 			const info = await browser.getPageInfoAsync();
 			if (!info.isOpen) {
 				ctx.ui.notify("Browser is closed — navigate to a page first.", "warning");
@@ -328,13 +342,13 @@ export default function (pi: ExtensionAPI) {
 			"On SPA sites, use wait_for after navigate (selector/state or networkidle) before click/type.",
 			"Use screenshot for visual verification (requires a vision-capable model); use toFile=true to save PNG to disk instead of base64.",
 			"Use get_console_logs when JavaScript errors or console output may explain page behavior.",
-			"Use get_network_logs when failed requests or 4xx/5xx responses may explain page behavior.",
+			"Use get_network_logs when failed, egress-blocked, or 4xx/5xx requests may explain page behavior. Navigate directly to a blocked origin to request approval.",
 			"Use set_cookies to inject cookies for authenticated flows after manual login.",
 			"Use hover to trigger tooltips/hover-menus before click; press for keyboard key events (Enter, Escape, Tab) — distinct from type mode:press which types characters; select_option to choose <select> dropdown values; set_viewport to resize the page for responsive/mobile checks.",
 			"Selectors are CSS selectors, or Playwright's role= and text= selector engines (e.g. role=button[name='Submit'], text=Sign in). If click/type fails, read the returned diagnostics and page snippet and adjust the selector.",
 			"Use frame to target an element inside an iframe: pass a CSS selector for the iframe itself, separate from the element selector.",
 			"Call set_dialog_behavior before the action that triggers a JS dialog (alert/confirm/prompt) — dialogs are dismissed by default, which would silently cancel a confirm(). Use get_dialog_logs to see captured dialogs.",
-			"Opening a link with target=_blank or window.open creates a popup that automatically becomes the active tab. Use list_tabs and switch_tab to manage multiple open tabs.",
+			"An approved target=_blank or window.open popup becomes the active tab; an unapproved popup is blocked and closed. Use list_tabs and switch_tab to manage open tabs.",
 			"Use scroll to bring an off-screen element into view (selector) or to scroll the page/container by pixel deltas; use drag for drag-and-drop between two selectors; use upload_file to set files on an <input type=file>.",
 		],
 		description:
@@ -471,7 +485,7 @@ export default function (pi: ExtensionAPI) {
 					};
 				}
 
-				const mgr = getBrowserManager();
+				const mgr = getConfiguredBrowserManager();
 
 				switch (action) {
 					case "navigate": {
@@ -988,7 +1002,9 @@ export default function (pi: ExtensionAPI) {
 				}
 				const message = err instanceof Error ? err.message : String(err);
 				return {
-					content: [{ type: "text", text: `Browser error: ${message}` }],
+					content: [
+						{ type: "text", text: message.startsWith("Blocked:") ? message : `Browser error: ${message}` },
+					],
 					details: { action, error: message } satisfies WebBrowserDetails,
 					isError: true,
 				};

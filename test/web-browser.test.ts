@@ -44,6 +44,7 @@ async function startFixtureServer(): Promise<{ url: string; close: () => Promise
 test("browser fixture integration", async () => {
 	const fixture = await startFixtureServer();
 	const browser = new BrowserManager();
+	browser.setOriginChecker(() => true);
 
 	try {
 		const nav = await browser.navigate(fixture.url);
@@ -173,6 +174,7 @@ test("browser fixture integration", async () => {
 test("scroll, drag, upload, dialogs, role/text selectors, iframe, and tabs", async () => {
 	const fixture = await startFixtureServer();
 	const browser = new BrowserManager();
+	browser.setOriginChecker(() => true);
 
 	try {
 		await browser.navigate(fixture.url);
@@ -247,6 +249,7 @@ test("scroll, drag, upload, dialogs, role/text selectors, iframe, and tabs", asy
 test("abort signal cancels navigation and browser remains usable", async () => {
 	const fixture = await startFixtureServer();
 	const browser = new BrowserManager();
+	browser.setOriginChecker(() => true);
 	const controller = new AbortController();
 
 	try {

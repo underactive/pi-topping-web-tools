@@ -3,19 +3,33 @@
  *
  * Lazily launches a single headless Chromium instance. `context.pages()` is
  * the source of truth for open tabs; `this.page` is only an "active tab"
- * cursor that new pages (including popups) claim automatically. Page
- * interactions are serialized via an async mutex.
+ * cursor. Popups claim it only after an approved main-frame navigation.
+ * Page interactions are serialized via an async mutex.
  */
 
-import type { Browser, BrowserContext, Cookie, Locator, Page } from "playwright";
+import type {
+	APIResponse,
+	Browser,
+	BrowserContext,
+	Cookie,
+	Locator,
+	Page,
+	Response,
+	Route,
+	WebSocketRoute,
+} from "playwright";
 import { chromium } from "playwright";
 import { getTurndownService } from "../fetch-markdown.ts";
+import { permissionKey } from "../permissions.ts";
+import { decideRequest, type UrlPermissionChecker } from "./egress-policy.ts";
 
 export const DEFAULT_VIEWPORT_WIDTH = 1280;
 export const DEFAULT_VIEWPORT_HEIGHT = 720;
 export const MAX_FULL_PAGE_WIDTH = 1920;
 export const MAX_BUFFER_ENTRIES = 500;
 export const DEFAULT_NAVIGATION_TIMEOUT_MS = 30_000;
+const MAX_REDIRECT_HOPS = 20;
+const REDIRECT_STATUS_CODES = new Set([301, 302, 303, 307, 308]);
 
 type AbortableOpts = { timeout?: number; signal?: AbortSignal };
 type FrameOpts = { frame?: string };
@@ -133,6 +147,11 @@ export class BrowserManager {
 	private networkBuffer: NetworkEntry[] = [];
 	private dialogBuffer: DialogEntry[] = [];
 	private dialogBehavior: DialogBehavior = { action: "dismiss" };
+	private originChecker: UrlPermissionChecker = () => false;
+	private lastBlockedDocumentUrl: string | undefined;
+	private navigationPage: Page | undefined;
+	private navigationSignal: AbortSignal | undefined;
+	private readonly pendingRedirects = new WeakMap<Page, string>();
 	private readonly mutex = new AsyncMutex();
 	private closed = false; // true only after explicit close(), not on initial/normal state
 
@@ -185,19 +204,56 @@ export class BrowserManager {
 			await this.ensureLaunched();
 			const page = this.page!;
 			const timeout = opts?.timeout ?? DEFAULT_NAVIGATION_TIMEOUT_MS;
+			this.lastBlockedDocumentUrl = undefined;
+			this.navigationPage = page;
+			this.navigationSignal = opts?.signal;
 
-			const response = await this.withAbort(opts?.signal, async () =>
-				page.goto(url, {
-					timeout,
-					waitUntil: "domcontentloaded",
-				}),
-			);
+			let currentUrl = url;
+			try {
+				for (let redirects = 0; redirects <= MAX_REDIRECT_HOPS; redirects++) {
+					this.pendingRedirects.delete(page);
+					let response: Response | null;
+					try {
+						response = await this.withAbort(opts?.signal, async () =>
+							page.goto(currentUrl, {
+								timeout,
+								waitUntil: "domcontentloaded",
+							}),
+						);
+					} catch (err) {
+						if (opts?.signal?.aborted) throw err;
+						const redirectTarget = this.pendingRedirects.get(page);
+						if (redirectTarget) {
+							currentUrl = redirectTarget;
+							continue;
+						}
+						const blockedError = this.blockedNavigationError(url);
+						if (blockedError) throw blockedError;
+						throw err;
+					}
 
-			return {
-				url: page.url(),
-				title: await page.title(),
-				statusCode: response?.status(),
-			};
+					const redirectTarget = this.pendingRedirects.get(page);
+					if (redirectTarget) {
+						currentUrl = redirectTarget;
+						continue;
+					}
+
+					const blockedError = this.blockedNavigationError(url);
+					if (blockedError) throw blockedError;
+					return {
+						url: page.url(),
+						title: await page.title(),
+						statusCode: response?.status(),
+					};
+				}
+				throw new Error(`Blocked: more than ${MAX_REDIRECT_HOPS} redirects`);
+			} finally {
+				if (this.navigationPage === page) {
+					this.navigationPage = undefined;
+					this.navigationSignal = undefined;
+				}
+				this.pendingRedirects.delete(page);
+			}
 		});
 	}
 
@@ -593,6 +649,10 @@ export class BrowserManager {
 		});
 	}
 
+	setOriginChecker(checker: UrlPermissionChecker): void {
+		this.originChecker = checker;
+	}
+
 	setDialogBehavior(action: "accept" | "dismiss", promptText?: string): void {
 		this.dialogBehavior = { action, promptText };
 	}
@@ -841,7 +901,12 @@ export class BrowserManager {
 					height: DEFAULT_VIEWPORT_HEIGHT,
 				},
 				acceptDownloads: false,
+				serviceWorkers: "block",
 			});
+			await this.context.route("**/*", (route) => this.enforceEgress(route));
+			await this.context.routeWebSocket("**/*", (webSocket) =>
+				this.enforceWebSocketEgress(webSocket),
+			);
 			this.context.on("page", (page) => this.registerPage(page));
 			this.page = await this.context.newPage();
 			this.closed = false;
@@ -858,16 +923,291 @@ export class BrowserManager {
 	}
 
 	/**
-	 * Attaches console/network/dialog listeners to every page in the context
-	 * (including the initial page and popups) and claims it as the active
-	 * tab. This is the single attachment point — `context.on("page")` also
-	 * fires for `context.newPage()`, so listeners must not be attached
-	 * anywhere else or they would be registered twice.
+	 * Attaches listeners to every page in the context. The initial page is
+	 * active immediately; popups become active only after an approved main-
+	 * frame navigation commits.
 	 */
 	private registerPage(page: Page): void {
 		this.attachConsoleListeners(page);
 		this.attachDialogListener(page);
-		this.page = page;
+
+		let pendingActivation = this.page !== undefined && !this.page.isClosed();
+		if (!pendingActivation) {
+			this.page = page;
+		}
+
+		page.on("framenavigated", (frame) => {
+			if (frame !== page.mainFrame()) return;
+			this.handleMainFrameNavigation(page, frame.url(), pendingActivation)
+				.then((activate) => {
+					if (activate && pendingActivation && !page.isClosed()) {
+						this.page = page;
+						pendingActivation = false;
+					}
+				})
+				.catch(() => {
+					this.closeBlockedPage(page).catch(() => {});
+				});
+		});
+
+		// The context-level page event can arrive after the first navigation has
+		// committed, in which case no later framenavigated event will activate it.
+		const currentUrl = page.url();
+		if (
+			pendingActivation &&
+			currentUrl !== "about:blank" &&
+			decideRequest(currentUrl, "document", currentUrl, this.originChecker).allow
+		) {
+			this.page = page;
+			pendingActivation = false;
+		}
+	}
+
+	private async enforceEgress(route: Route): Promise<void> {
+		const request = route.request();
+		let requestPage: Page | undefined;
+		let pageUrl = "";
+		let isMainFrameRequest = false;
+		try {
+			const frame = request.frame();
+			requestPage = frame.page();
+			pageUrl = requestPage.url();
+			isMainFrameRequest = frame === requestPage.mainFrame();
+		} catch {
+			// Requests without an issuing page are evaluated with an empty page URL.
+		}
+
+		const decision = decideRequest(
+			request.url(),
+			request.resourceType(),
+			pageUrl,
+			this.originChecker,
+		);
+		if (decision.allow) {
+			const protocol = new URL(request.url()).protocol;
+			if (protocol !== "http:" && protocol !== "https:") {
+				await route.continue();
+				return;
+			}
+
+			// route.continue() follows redirect hops without routing them again.
+			// Fetch one response without redirects so Location can be approved
+			// before Chromium receives a response that would contact the target.
+			let response: APIResponse;
+			try {
+				response = await route.fetch({
+					maxRedirects: 0,
+					signal: requestPage === this.navigationPage ? this.navigationSignal : undefined,
+				});
+			} catch {
+				try {
+					await route.abort(this.navigationSignal?.aborted ? "aborted" : "failed");
+				} catch {
+					// The request may already be gone after a page or context closes.
+				}
+				return;
+			}
+			const location = REDIRECT_STATUS_CODES.has(response.status())
+				? response.headers().location
+				: undefined;
+			if (!location) {
+				try {
+					await route.fulfill({ response });
+				} finally {
+					await response.dispose();
+				}
+				return;
+			}
+
+			let redirectUrl: string;
+			try {
+				redirectUrl = new URL(location, request.url()).toString();
+			} catch {
+				await response.dispose();
+				this.pushNetwork({
+					type: "failed",
+					url: request.url(),
+					method: request.method(),
+					status: 0,
+					statusText: "",
+					failure: "blocked by egress policy: Invalid redirect URL",
+					timestamp: Date.now(),
+				});
+				await route.abort("blockedbyclient");
+				return;
+			}
+
+			const redirectDecision = decideRequest(
+				redirectUrl,
+				request.resourceType(),
+				pageUrl,
+				this.originChecker,
+			);
+			await response.dispose();
+
+			if (!redirectDecision.allow) {
+				if (isMainFrameRequest && requestPage === this.navigationPage) {
+					this.lastBlockedDocumentUrl = redirectUrl;
+				}
+				this.pushNetwork({
+					type: "failed",
+					url: redirectUrl,
+					method: request.method(),
+					status: 0,
+					statusText: "",
+					failure: `blocked by egress policy: ${redirectDecision.reason}`,
+					timestamp: Date.now(),
+				});
+				await route.abort("blockedbyclient");
+				if (isMainFrameRequest && requestPage && requestPage !== this.page) {
+					await this.closeBlockedPage(requestPage);
+				}
+				return;
+			}
+
+			if (request.resourceType() !== "document" || !isMainFrameRequest || !requestPage) {
+				this.pushNetwork({
+					type: "failed",
+					url: redirectUrl,
+					method: request.method(),
+					status: 0,
+					statusText: "",
+					failure: "blocked by egress policy: Redirected subrequests are not followed",
+					timestamp: Date.now(),
+				});
+				await route.abort("blockedbyclient");
+				return;
+			}
+
+			this.pendingRedirects.set(requestPage, redirectUrl);
+			await route.fulfill({
+				status: 200,
+				contentType: "text/html",
+				body: "<!doctype html><meta charset=\"utf-8\"><title>Redirecting</title>",
+			});
+			if (requestPage !== this.navigationPage) {
+				setTimeout(() => {
+					if (requestPage.isClosed()) return;
+					this.pendingRedirects.delete(requestPage);
+					requestPage.goto(redirectUrl, { waitUntil: "domcontentloaded" }).catch(() => {
+						if (requestPage !== this.page) this.closeBlockedPage(requestPage).catch(() => {});
+					});
+				}, 0);
+			}
+			return;
+		}
+
+		if (
+			request.resourceType() === "document" &&
+			isMainFrameRequest &&
+			requestPage === this.page
+		) {
+			this.lastBlockedDocumentUrl = request.url();
+		}
+		this.pushNetwork({
+			type: "failed",
+			url: request.url(),
+			method: request.method(),
+			status: 0,
+			statusText: "",
+			failure: `blocked by egress policy: ${decision.reason}`,
+			timestamp: Date.now(),
+		});
+
+		await route.abort("blockedbyclient");
+		if (request.resourceType() === "document" && requestPage && requestPage !== this.page) {
+			await this.closeBlockedPage(requestPage);
+		}
+	}
+
+	private blockedNavigationError(requestedUrl: string): Error | undefined {
+		if (!this.lastBlockedDocumentUrl) return undefined;
+		const blockedTarget = permissionKey(this.lastBlockedDocumentUrl);
+		const navigationType = blockedTarget === permissionKey(requestedUrl) ? "navigation" : "redirect";
+		return new Error(`Blocked: ${navigationType} to ${blockedTarget} requires approval`);
+	}
+
+	private async enforceWebSocketEgress(webSocket: WebSocketRoute): Promise<void> {
+		const url = webSocket.url();
+		let permitted = false;
+		try {
+			permitted = this.originChecker(url);
+		} catch {
+			// Fail closed when the live permission source cannot be read.
+		}
+
+		if (permitted) {
+			webSocket.connectToServer();
+			return;
+		}
+
+		this.pushNetwork({
+			type: "failed",
+			url,
+			method: "GET",
+			status: 0,
+			statusText: "",
+			failure: "blocked by egress policy: WebSocket URL is not approved",
+			timestamp: Date.now(),
+		});
+		await webSocket.close({ code: 1008, reason: "blocked by egress policy" });
+	}
+
+	private async handleMainFrameNavigation(
+		page: Page,
+		url: string,
+		pendingActivation: boolean,
+	): Promise<boolean> {
+		if (pendingActivation && url === "about:blank") return false;
+		if (
+			url === "chrome-error://chromewebdata/" &&
+			(page === this.navigationPage || this.pendingRedirects.has(page))
+		) {
+			return false;
+		}
+
+		const decision = decideRequest(url, "document", url, this.originChecker);
+		if (decision.allow) return pendingActivation;
+
+		this.pushNetwork({
+			type: "failed",
+			url,
+			method: "GET",
+			status: 0,
+			statusText: "",
+			failure: `blocked by egress policy: ${decision.reason}`,
+			timestamp: Date.now(),
+		});
+
+		if (pendingActivation) {
+			await this.closeBlockedPage(page);
+			return false;
+		}
+
+		try {
+			await page.goBack({ waitUntil: "commit" });
+		} catch {
+			// Fall through and close a page that cannot return to an approved URL.
+		}
+
+		if (!page.isClosed()) {
+			const current = decideRequest(page.url(), "document", page.url(), this.originChecker);
+			if (!current.allow) await this.closeBlockedPage(page);
+		}
+		return false;
+	}
+
+	private async closeBlockedPage(page: Page): Promise<void> {
+		try {
+			await page.close({ runBeforeUnload: false });
+		} catch {
+			// The page may already have closed while its request was being aborted.
+		}
+
+		if (this.page === page) {
+			const fallback = this.context?.pages().filter((candidate) => !candidate.isClosed()).at(-1);
+			this.page = fallback;
+		}
 	}
 
 	private attachConsoleListeners(page: Page): void {
@@ -878,13 +1218,15 @@ export class BrowserManager {
 			this.pushConsole({ type: "pageerror", text: err.message, timestamp: Date.now() });
 		});
 		page.on("requestfailed", (req) => {
+			const failure = req.failure()?.errorText ?? "unknown";
+			if (failure.includes("ERR_BLOCKED_BY_CLIENT")) return;
 			this.pushNetwork({
 				type: "failed",
 				url: req.url(),
 				method: req.method(),
 				status: 0,
 				statusText: "",
-				failure: req.failure()?.errorText ?? "unknown",
+				failure,
 				timestamp: Date.now(),
 			});
 		});
@@ -953,7 +1295,13 @@ export class BrowserManager {
 		this.consoleBuffer = [];
 		this.networkBuffer = [];
 		this.dialogBuffer = [];
+		this.lastBlockedDocumentUrl = undefined;
 
+		try {
+			await this.context?.unrouteAll({ behavior: "ignoreErrors" });
+		} catch {
+			// ignore
+		}
 		try {
 			await this.page?.close({ runBeforeUnload: false });
 		} catch {

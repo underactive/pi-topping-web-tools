@@ -1,5 +1,16 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- `web_browser`: fail-closed browser-context egress enforcement for HTTP(S) requests and WebSocket connections, with live preapproved/session/durable permission checks and blocked-request reporting in network logs. Service workers are disabled so they cannot bypass routing.
+
+### Changed
+
+- `web_browser`: inspects redirect targets before contact, follows approved top-level redirects one gated hop at a time, blocks redirected subresources, closes unapproved popups before activation, and restores the prior page after blocked client-side navigation.
+- `web_browser`: retains an Allow once navigation decision as a browser-session grant so the approved document and its later same-origin requests can pass request-level enforcement.
+
 ## [0.2.1] - 2026-08-31
 
 ### Added

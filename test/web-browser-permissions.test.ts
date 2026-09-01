@@ -192,9 +192,61 @@ test("web_browser tool_call hook blocks navigate to non-preapproved host without
 	assert.match(result?.reason ?? "", /evil\.example/);
 });
 
+test("web_browser keeps an upgraded one-time navigation approval available to egress checks", async () => {
+	const handler = extractToolCallHandler(webBrowserExtension);
+	const first = await handler(
+		{
+			type: "tool_call",
+			toolCallId: "1",
+			toolName: "web_browser",
+			input: { action: "navigate", url: "http://one-time.example/start" },
+		},
+		mockCtx(true, "Allow once"),
+	);
+	assert.equal(first, undefined);
+
+	const reused = await handler(
+		{
+			type: "tool_call",
+			toolCallId: "2",
+			toolName: "web_browser",
+			input: { action: "navigate", url: "https://one-time.example/next" },
+		},
+		mockCtx(false),
+	);
+	assert.equal(reused, undefined);
+});
+
+test("web_browser path preapproval does not approve the entire origin", async () => {
+	const handler = extractToolCallHandler(webBrowserExtension);
+	const preapproved = await handler(
+		{
+			type: "tool_call",
+			toolCallId: "1",
+			toolName: "web_browser",
+			input: { action: "navigate", url: "https://github.com/anthropics/sdk" },
+		},
+		mockCtx(false),
+	);
+	assert.equal(preapproved, undefined);
+
+	const outsidePath = await handler(
+		{
+			type: "tool_call",
+			toolCallId: "2",
+			toolName: "web_browser",
+			input: { action: "navigate", url: "https://github.com/unapproved/path" },
+		},
+		mockCtx(false),
+	);
+	assert.equal(outsidePath?.block, true);
+	assert.match(outsidePath?.reason ?? "", /github\.com/);
+});
+
 test("web_browser tool_call hook blocks evaluate on a non-preapproved page without UI", async () => {
 	const handler = extractToolCallHandler(webBrowserExtension);
 	const browser = getBrowserManager();
+	browser.setOriginChecker((url) => url === `file://${fixturePath}`);
 	try {
 		await browser.navigate(`file://${fixturePath}`);
 		const result = await handler(

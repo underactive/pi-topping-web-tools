@@ -22,7 +22,7 @@ Web work has two distinct needs: clean context from public sources and browser-l
 - **Reach PDF-only sources.** `pdf_extract` reads the text layer of specifications, datasheets, and papers that markdown fetchers treat as undisplayable binary content, and that pi's `read` tool cannot parse.
 - **Validate the rendered product.** `web_browser` runs a fresh headless Chromium context for client-rendered pages, local development servers, and user journeys that static HTML cannot represent. It can inspect the accessibility tree, interact with controls, and surface console and failed-network diagnostics.
 - **Use the appropriate tool, not the heavier tool by default.** Fetch static public material first; move to browser automation when JavaScript, visual state, or user input is part of the question.
-- **Keep control over access.** The tools share a host allowlist and confirmation workflow; fetched page text is explicitly marked as untrusted, and browser sessions do not reuse the system browser profile.
+- **Keep control over access.** The tools share a host allowlist and confirmation workflow; `web_browser` also enforces approved URLs on HTTP(S) requests and WebSocket connections inside its isolated browser context. Fetched page text is explicitly marked as untrusted, and browser sessions do not reuse the system browser profile.
 
 ## Examples
 
@@ -114,7 +114,7 @@ Single tool with an `action` parameter:
 | `wait_for` | `selector?`, `state?`, `networkidle?` | Wait for selector state and/or network idle |
 | `get_accessibility_snapshot` | `selector?` | Return ARIA accessibility tree (YAML) |
 | `get_console_logs` | — | Drain captured console/page errors |
-| `get_network_logs` | — | Drain captured failed requests and 4xx/5xx responses |
+| `get_network_logs` | — | Drain captured egress blocks, failed requests, and 4xx/5xx responses |
 | `get_cookies` | — | Return cookie metadata as JSON (name, domain, path, flags; values are redacted) |
 | `set_cookies` | `cookies` | Set cookies (each needs `url` or `domain`+`path`) |
 | `go_back` / `go_forward` / `reload` | — | Browser history navigation / reload |
@@ -129,9 +129,24 @@ Single tool with an `action` parameter:
 
 Optional `timeout` (ms, default 30000) applies to navigation and to selector-based actions (click, type, hover, select_option, screenshot, get_text, get_markdown, wait_for, get_accessibility_snapshot, scroll, drag, upload_file). Other actions use Playwright defaults.
 
+### Browser network egress
+
+`web_browser` enforces its permissions inside every fresh browser context:
+
+- Every HTTP(S) document, script, image, XHR/fetch, beacon, and other routed request is checked against the live preapproved, session, and durable permissions before the request is sent. Path-scoped preapprovals remain path-scoped; session and durable grants remain exact-origin grants.
+- Redirect responses are inspected before Chromium receives them. Approved top-level redirects are followed one gated hop at a time; a redirect to an unapproved URL returns `Blocked: redirect to <origin> requires approval`. Redirected subresources are blocked rather than followed and appear in network logs.
+- WebSocket handshakes use the same live permission check. Service workers are disabled so they cannot bypass request routing.
+- Client-side navigation and popup destinations are gated. A blocked popup is closed without becoming active, and a blocked same-tab navigation returns to the prior approved page.
+- `data:` and `blob:` subresources are allowed because they do not create network egress, while top-level `data:`/`blob:` documents are denied. `file:` documents require approval for the target path; local-file subresources are allowed only from an approved local-file page.
+- Decision errors fail closed. Route handlers never prompt; call `navigate` on a blocked target to use the normal approval prompt. Blocks are reported by `get_network_logs` as `blocked by egress policy`.
+
+A navigation approved with **Allow once** is retained as a browser-session origin grant so the document and its later same-origin requests can continue to load under request-level enforcement. Choosing a durable duration still controls whether that origin is available in later sessions.
+
+Strict egress can make an approved page incomplete when it depends on an unapproved CDN, API, font, or analytics origin. Navigate directly to that origin to approve it, then return to the page and reload.
+
 Selectors are CSS selectors, or Playwright's `role=` and `text=` selector engines (e.g. `role=button[name='Submit']`, `text=Sign in`). Pass `frame` (a CSS selector for the containing `<iframe>`) to scope click/type/hover/select_option/screenshot/get_text/wait_for/get_accessibility_snapshot/scroll/upload_file/drag into that frame.
 
-Opening a link with `target=_blank` or `window.open` creates a popup that automatically becomes the active tab — subsequent actions target it until you `switch_tab` back. Use `list_tabs` to see all open tabs.
+Opening a link with `target=_blank` or `window.open` creates a popup only when its destination is approved. An approved popup becomes the active tab; a popup to an unapproved URL is closed and the current tab stays active. Use `list_tabs` to see all open tabs.
 
 JS dialogs (`alert`/`confirm`/`prompt`) are dismissed by default so they never block automation; call `set_dialog_behavior` before the action that triggers one if you need `accept` instead (and, for `prompt`, a `promptText` value).
 
@@ -181,10 +196,10 @@ Commands:
 ## Security model (shared)
 
 - **Preapproved hosts**: common documentation and dev sites are allowed without prompting. The allowlist lives in `src/permissions.ts` and is shared by both tools.
-- **User confirmation**: other hosts prompt Allow once / Allow for this session / Allow for 1 day / Allow for 1 week / Allow for 30 days / Deny.
+- **User confirmation**: other hosts prompt Allow once / Allow for this session / Allow for 1 day / Allow for 1 week / Allow for 30 days / Deny. For `web_browser` navigation, Allow once becomes a browser-session grant because request-level enforcement must authorize the loaded document's later requests.
 - **URL validation**: all tools reject embedded credentials and overlong URLs. `fetch_markdown` and `pdf_extract` additionally reject loopback, private, and link-local hosts and any non-HTTP(S) scheme on a `url`. `web_browser` accepts `localhost`, private IPs, and `file://` paths so it can drive local dev servers and local HTML — each still prompts for confirmation unless session-approved or covered by a saved durable grant.
 - **Local file resolution**: `pdf_extract` resolves a `path` through `realpath` before any check, so a symlink pointing outside the working directory is treated as outside and prompts. Directories, FIFOs, and devices are rejected, and the size limit is enforced from `stat` before any bytes are read. `web_browser` `upload_file` follows the same rule: files outside the working directory prompt for confirmation (session-scoped) before they are read.
-- **Isolated browser context**: each session uses a fresh Chromium context (no shared profile/cookies with your system browser).
+- **Isolated browser context and routed egress**: each session uses a fresh Chromium context (no shared profile/cookies with your system browser). HTTP(S) requests, redirect targets, client navigations, popups, and WebSocket connections are checked against live `web_browser` permissions; service workers are disabled.
 - **Untrusted content boundary**: `fetch_markdown` results are wrapped in `<untrusted-content url="…">` tags, and `pdf_extract` results in `<untrusted-content source="…">`, so the model treats fetched page and document text as data, not instructions.
 - **PDF resource limits**: extraction is bounded by download size, page count, and a timeout. Because the bundled PDF.js runs on the event loop rather than a worker, the timeout bounds extraction across its await points but cannot interrupt a fully synchronous parse — the size and page caps are the primary defence.
 
@@ -192,12 +207,14 @@ Commands:
 
 - `web_browser` requires the Chromium download.
 - Screenshots consume significant context on vision models — prefer `get_text`, `get_markdown`, or `get_accessibility_snapshot`.
-- Network logs capture only failed requests and 4xx/5xx responses (not all traffic).
+- Network logs capture blocked/failed requests and 4xx/5xx responses, not successful traffic.
+- Request routing buffers HTTP(S) responses and blocks redirected subresources, so streaming endpoints and resources that rely on redirects may not behave like an unrestricted browser.
+- Playwright routing covers HTTP(S) and WebSockets, not browser transports such as WebRTC; OS-level egress sandboxing remains outside this extension's scope.
 - `pdf_extract` reads only an existing text layer; scanned documents need OCR, which is out of scope.
 
 ### Popups and navigation
 
-Popups inherit the same security model as same-tab link clicks: opening a `target=_blank` link or calling `window.open` is not gated by the host allowlist, since it's JS-initiated navigation rather than a tool-driven `navigate` call. `evaluate` remains gated per active page URL — the permission check follows the active-tab cursor automatically, so switching to a popup and calling `evaluate` re-checks permission for that popup's URL.
+Same-tab client navigation and popups are checked against the live `web_browser` permissions. Unapproved document requests are aborted before reaching the target; blocked popups are closed without becoming active, while a blocked same-tab navigation returns to the prior approved page. Approved popups become active only after their main-frame navigation commits.
 
 ## Development
 
