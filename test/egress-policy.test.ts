@@ -85,7 +85,7 @@ test("decideRequest permits an approved initial file document", () => {
 });
 
 test("decideRequest permits file subresources only from an approved file page", () => {
-	const checker = (url: string) => url === "file:///tmp/page.html";
+	const checker = (url: string) => url === "file:///tmp/page.html" || url === "file:///tmp/style.css";
 	assert.deepEqual(
 		decideRequest("file:///tmp/style.css", "stylesheet", "file:///tmp/page.html", checker),
 		{ allow: true },
@@ -96,7 +96,7 @@ test("decideRequest permits file subresources only from an approved file page", 
 	);
 	assert.deepEqual(
 		decideRequest("file:///tmp/style.css", "stylesheet", "file:///tmp/page.html", () => false),
-		{ allow: false, reason: "Local-file page is not approved: file:///tmp/page.html" },
+		{ allow: false, reason: "Local file is not approved: file:///tmp/style.css" },
 	);
 });
 
