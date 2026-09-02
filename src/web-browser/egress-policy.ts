@@ -31,9 +31,8 @@ function alternateWwwHostname(hostname: string): string | undefined {
  *
  * HTTP(S) requests require a live URL permission. The network-free internal
  * about:blank page and data/blob subresources are allowed, but top-level
- * data/blob documents are denied. Local-file subresources are allowed only
- * from an approved local-file page;
- * an initial file document instead checks the approved target path.
+ * data/blob documents are denied. Every file: request checks the approved
+ * target path. Local-file subresources additionally require a local-file page.
  */
 export function decideRequest(
 	requestUrl: string,
@@ -84,9 +83,9 @@ export function decideRequest(
 			return denied("Local-file subrequests require a local-file page");
 		}
 
-		return isPermittedUrl(pageUrl)
+		return isPermittedUrl(requestUrl)
 			? { allow: true }
-			: denied(`Local-file page is not approved: ${permissionKey(pageUrl)}`);
+			: denied(`Local file is not approved: ${permissionKey(requestUrl)}`);
 	} catch {
 		return denied("Permission check failed");
 	}
