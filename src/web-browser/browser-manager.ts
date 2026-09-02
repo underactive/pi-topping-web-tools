@@ -758,17 +758,23 @@ export class BrowserManager {
 	 * than blocking indefinitely.
 	 */
 	private async forceClose(timeoutMs: number): Promise<void> {
+		if (timeoutMs <= 0) {
+			try {
+				await this.cleanup();
+			} catch {
+				// Cleanup error — best effort; resources are cleaned up by OS.
+			}
+			return;
+		}
+
 		let timerId: ReturnType<typeof setTimeout> | undefined;
-		const timer =
-			timeoutMs > 0
-				? new Promise<never>((_, reject) => {
-						timerId = setTimeout(
-							() => reject(new Error("Close timed out")),
-							timeoutMs,
-						);
-						if (typeof timerId.unref === "function") timerId.unref();
-				  })
-				: Promise.resolve();
+		const timer = new Promise<never>((_, reject) => {
+			timerId = setTimeout(
+				() => reject(new Error("Close timed out")),
+				timeoutMs,
+			);
+			if (typeof timerId.unref === "function") timerId.unref();
+		});
 
 		try {
 			await Promise.race([this.cleanup(), timer]);
