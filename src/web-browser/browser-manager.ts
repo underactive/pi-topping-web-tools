@@ -747,8 +747,6 @@ export class BrowserManager {
 	async close(timeoutMs = 5_000): Promise<void> {
 		this.closed = true;
 
-		await this.mutex.drain();
-
 		await this.forceClose(timeoutMs);
 	}
 
