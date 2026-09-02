@@ -146,7 +146,7 @@ Strict egress can make an approved page incomplete when it depends on an unappro
 
 Selectors are CSS selectors, or Playwright's `role=` and `text=` selector engines (e.g. `role=button[name='Submit']`, `text=Sign in`). Pass `frame` (a CSS selector for the containing `<iframe>`) to scope click/type/hover/select_option/screenshot/get_text/wait_for/get_accessibility_snapshot/scroll/upload_file/drag into that frame.
 
-Opening a link with `target=_blank` or `window.open` creates a popup only when its destination is approved. An approved popup becomes the active tab; a popup to an unapproved URL is closed and the current tab stays active. Use `list_tabs` to see all open tabs.
+Opening a link with `target=_blank` or `window.open` opens a new tab whose destination is checked against live permissions. An approved popup becomes the active tab; a popup to an unapproved URL is closed without becoming active and the current tab stays active. Use `list_tabs` to see all open tabs.
 
 JS dialogs (`alert`/`confirm`/`prompt`) are dismissed by default so they never block automation; call `set_dialog_behavior` before the action that triggers one if you need `accept` instead (and, for `prompt`, a `promptText` value).
 
