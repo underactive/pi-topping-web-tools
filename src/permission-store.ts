@@ -99,10 +99,31 @@ export function listGrants(): Grant[] {
 	return valid;
 }
 
+let grantCache: Map<string, number> | undefined;
+let grantCacheStorePath: string | undefined;
+
+function grantCacheKey(scope: PermissionScope, origin: string): string {
+	return `${scope}\0${origin}`;
+}
+
+function setGrantCache(grants: Grant[]): void {
+	grantCacheStorePath = storePath();
+	grantCache = new Map(grants.map((g) => [grantCacheKey(g.scope, g.origin), g.expiresAt]));
+}
+
+function ensureGrantCache(): Map<string, number> {
+	const currentPath = storePath();
+	if (!grantCache || grantCacheStorePath !== currentPath) {
+		setGrantCache(listGrants());
+	}
+	return grantCache!;
+}
+
 /** Check whether a specific scope+origin has an active durable grant. */
 export function isGranted(scope: PermissionScope, origin: string): boolean {
 	const key = normalizeOrigin(origin);
-	return listGrants().some((g) => g.scope === scope && g.origin === key);
+	const expiresAt = ensureGrantCache().get(grantCacheKey(scope, key));
+	return expiresAt !== undefined && expiresAt > Date.now();
 }
 
 /** Prune expired entries from a grant list. */
@@ -180,6 +201,7 @@ export async function addGrant(scope: PermissionScope, origin: string, ttlMs: nu
 		// Cap at MAX_GRANTS.
 		const capped = filtered.length > MAX_GRANTS ? filtered.slice(-MAX_GRANTS) : filtered;
 		await writeStore(capped);
+		setGrantCache(capped);
 		return true;
 	} finally {
 		await releaseLock();
@@ -196,6 +218,7 @@ export async function removeGrant(scope: PermissionScope, origin: string): Promi
 		const grants = pruneExpired(listGrants());
 		const filtered = grants.filter((g) => !(g.scope === scope && g.origin === normalized));
 		await writeStore(filtered);
+		setGrantCache(filtered);
 		return true;
 	} finally {
 		await releaseLock();
