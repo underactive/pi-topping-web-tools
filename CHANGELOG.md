@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.2] - 2026-09-02
+
 ### Added
 
 - `web_browser`: fail-closed browser-context egress enforcement for HTTP(S) requests and WebSocket connections, with live preapproved/session/durable permission checks and blocked-request reporting in network logs. Service workers are disabled so they cannot bypass routing.

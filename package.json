@@ -1,6 +1,6 @@
 {
 	"name": "@underactive/pi-topping-web-tools",
-	"version": "0.2.1",
+	"version": "0.2.2",
 	"description": "Pi extensions for the web: fetch_markdown (URL to markdown, cached, keyless), pdf_extract (PDF text extraction) and web_browser (headless Playwright automation), sharing a preapproved-host allowlist.",
 	"keywords": ["pi-package", "pi-extension"],
 	"license": "MIT",
