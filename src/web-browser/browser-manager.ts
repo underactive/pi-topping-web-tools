@@ -745,15 +745,10 @@ export class BrowserManager {
 	 *                    (default 5000). Set to 0 for unbounded.
 	 */
 	async close(timeoutMs = 5_000): Promise<void> {
-		// Mark closed immediately so ensureLaunched() bails out.
 		this.closed = true;
 
-		// Drain the mutex chain (wait for any in-flight operation to finish),
-		// then call cleanup directly — bypassing the mutex so no new
-		// operation can re-trigger ensureLaunched() mid-shutdown.
 		await this.mutex.drain();
 
-		// Force-close with optional timeout.
 		await this.forceClose(timeoutMs);
 	}
 
