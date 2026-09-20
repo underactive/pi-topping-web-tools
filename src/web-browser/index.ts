@@ -516,7 +516,8 @@ export default function (pi: ExtensionAPI) {
 								action,
 								url: result.url,
 								title: result.title,
-								statusCode: result.statusCode,
+								// A same-document navigation has no response; omit the key rather than storing undefined.
+								...(result.statusCode !== undefined ? { statusCode: result.statusCode } : {}),
 								bytes: Buffer.byteLength(text),
 							} satisfies WebBrowserDetails,
 						};

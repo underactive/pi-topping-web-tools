@@ -2,6 +2,14 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Bumped the pinned `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` devDependencies from 0.82.1 to 0.86.0 so `npm run typecheck` matches the 0.86.0 runtime API.
+
+### Fixed
+
+- `web_browser`, `pdf_extract`: tool result `details` no longer carry undefined-valued properties, keeping them JSON-compatible as pi 0.86.0's `ToolResultMessage.details` requires. `web_browser` omits `statusCode` for same-document navigations; `pdf_extract` omits `firstPage`/`lastPage` for a zero-page PDF and no longer prints "pages undefined-undefined" in its no-text-layer message.
+
 ## [0.2.2] - 2026-09-02
 
 ### Added

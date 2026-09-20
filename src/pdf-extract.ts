@@ -346,8 +346,10 @@ Usage notes:
 			source,
 			totalPages: loaded.totalPages,
 			pageCount: selected.length,
-			firstPage: selected[0],
-			lastPage: selected[selected.length - 1],
+			// Empty only for a zero-page PDF; omit the keys rather than storing undefined.
+			...(selected.length > 0
+				? { firstPage: selected[0], lastPage: selected[selected.length - 1] }
+				: {}),
 			bytes: loaded.bytes,
 			durationMs: Date.now() - start,
 			cached: loaded.cached,
@@ -358,7 +360,11 @@ Usage notes:
 				content: [
 					{
 						type: "text" as const,
-						text: `No extractable text layer found in ${source} (pages ${baseDetails.firstPage}-${baseDetails.lastPage} of ${loaded.totalPages}). The PDF is likely scanned or image-only. This tool does not perform OCR.`,
+						text: `No extractable text layer found in ${source}${
+							selected.length > 0
+								? ` (pages ${selected[0]}-${selected[selected.length - 1]} of ${loaded.totalPages})`
+								: ` (0 of ${loaded.totalPages} page(s))`
+						}. The PDF is likely scanned or image-only. This tool does not perform OCR.`,
 					},
 				],
 				details: baseDetails satisfies PdfExtractDetails,
