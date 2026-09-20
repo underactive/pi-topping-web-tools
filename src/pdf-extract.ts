@@ -338,14 +338,14 @@ Usage notes:
 			.join("\n\n");
 
 		const hasText = trimmed.some((text) => text.length > 0);
+		const range =
+			selected.length > 0 ? { firstPage: selected[0], lastPage: selected[selected.length - 1] } : undefined;
 		const baseDetails = {
 			source,
 			totalPages: loaded.totalPages,
 			pageCount: selected.length,
 			// Empty only for a zero-page PDF; omit the keys rather than storing undefined.
-			...(selected.length > 0
-				? { firstPage: selected[0], lastPage: selected[selected.length - 1] }
-				: {}),
+			...(range ?? {}),
 			bytes: loaded.bytes,
 			durationMs: Date.now() - start,
 			cached: loaded.cached,
@@ -357,9 +357,7 @@ Usage notes:
 					{
 						type: "text" as const,
 						text: `No extractable text layer found in ${source}${
-							selected.length > 0
-								? ` (pages ${selected[0]}-${selected[selected.length - 1]} of ${loaded.totalPages})`
-								: ` (0 of ${loaded.totalPages} page(s))`
+							range ? ` (pages ${range.firstPage}-${range.lastPage} of ${loaded.totalPages})` : ` (0 of ${loaded.totalPages} page(s))`
 						}. The PDF is likely scanned or image-only. This tool does not perform OCR.`,
 					},
 				],
