@@ -48,10 +48,6 @@ export function clearPdfExtractCache(): void {
 
 const _activeFetches = new Set<AbortController>();
 
-export function _activeFetchCountForTests(): number {
-	return _activeFetches.size;
-}
-
 export function _cleanup(): void {
 	PDF_CACHE.clear();
 	for (const controller of _activeFetches) {
