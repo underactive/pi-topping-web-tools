@@ -129,6 +129,47 @@ Single tool with an `action` parameter:
 
 Optional `timeout` (ms, default 30000) applies to navigation and to selector-based actions (click, type, hover, select_option, screenshot, get_text, get_markdown, wait_for, get_accessibility_snapshot, scroll, drag, upload_file). Other actions use Playwright defaults.
 
+### Screenshots and image resize
+
+When `screenshot` returns an inline result (`toFile` omitted or `false`), `web_browser` places the captured PNG in the conversation as a base64 image block. Base64 adds roughly one-third to the payload, and full-page PNGs can be several MiB. On pi 0.87+, the active model's `inputLimits.images.resize` profile is applied to these tool-result images before they enter history; the same profile covers `@file` attachments, `read`, and images returned by other tools. Images are encoded once when they enter history, so changing models later does not rewrite historical images.
+
+`toFile=true` and `/browser-screenshot` save the original PNG to disk and put only the path and dimensions in the tool result. The file is resized only if a later `read` or `@file` attachment sends it to the model.
+
+The resize fields are:
+
+- `maxWidth` / `maxHeight`: pixel bounds (pi defaults to 2000×2000)
+- `maxBytes`: maximum base64-encoded payload size (pi defaults to 4.5 MiB)
+- `jpegQuality`: JPEG quality when the PNG does not fit under `maxBytes` (pi defaults to 80)
+
+The default capture is the viewport (1280×720 unless `set_viewport` changed it); `fullPage: true` captures the whole document. `web_browser` applies a 1920px maximum-width clamp to the reported dimensions of full-page screenshots; this is metadata only, not image resizing—the returned PNG remains the original capture. Tall full-page screenshots regularly exceed the default 2000px height bound and are scaled before they enter history; for normal viewport screenshots, `maxBytes` is usually the effective cost lever.
+
+Configure a profile per model in `~/.pi/agent/models.json`; use the provider and model ID shown by `pi --list-models`. `modelOverrides.inputLimits` is deep-merged, so a resize override can be scoped to one model:
+
+```json
+{
+  "providers": {
+    "<provider>": {
+      "modelOverrides": {
+        "<model-id>": {
+          "inputLimits": {
+            "images": {
+              "resize": {
+                "maxWidth": 1568,
+                "maxHeight": 1568,
+                "maxBytes": 524288,
+                "jpegQuality": 75
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+This matches pi's documented example. It leaves a default 1280×720 viewport screenshot unscaled on the long edge, making `maxBytes` the practical size lever. When pi resizes an image, it adds a coordinate note such as `[Image: original 1280x4000, displayed at 800x2500. Multiply coordinates by 1.60 to map to original image.]`; the tool's own `Screenshot <dims>` line is only a summary of the capture, so the resize note is the authoritative account of the dimensions sent to the model. An overly tight `maxBytes` does not fail loudly: pi keeps shrinking dimensions until the encoded image fits. Aggressive values can make small page text (navigation labels, fine print, or code) unreadable, and JPEG fallback adds artifacts; prefer `get_text`, `get_markdown`, or `get_accessibility_snapshot` when the task is reading copy. Set `images.autoResize: false` in pi's settings to disable resizing globally.
+
 ### Browser network egress
 
 `web_browser` enforces its permissions inside every fresh browser context:
@@ -206,7 +247,7 @@ Commands:
 ## Limitations
 
 - `web_browser` requires the Chromium download.
-- Screenshots consume significant context on vision models — prefer `get_text`, `get_markdown`, or `get_accessibility_snapshot`.
+- Screenshots consume significant context on vision models — prefer `get_text`, `get_markdown`, or `get_accessibility_snapshot`. On pi 0.87+, a model-side resize profile ([Screenshots and image resize](#screenshots-and-image-resize)) can cut screenshot request size and cost; aggressive resizing can make small page text unreadable.
 - Network logs capture blocked/failed requests and 4xx/5xx responses, not successful traffic.
 - Request routing buffers HTTP(S) responses and blocks redirected subresources, so streaming endpoints and resources that rely on redirects may not behave like an unrestricted browser.
 - Playwright routing covers HTTP(S) and WebSockets, not browser transports such as WebRTC; OS-level egress sandboxing remains outside this extension's scope.
