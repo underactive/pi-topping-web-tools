@@ -469,6 +469,8 @@ export default function (pi: ExtensionAPI) {
 				Type.Number({ description: "Timeout in milliseconds for navigation/interaction (default 30000)" }),
 			),
 		}),
+		// Not read-only: click, type, evaluate, set_cookies, and upload_file act on the page.
+		annotations: { readOnlyHint: false, openWorldHint: true },
 
 		async execute(_toolCallId, params, signal, onUpdate, ctx) {
 			const action = params.action as WebBrowserAction;

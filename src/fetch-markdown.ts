@@ -476,6 +476,7 @@ Usage notes:
 		"If fetch_markdown reports truncated content, call it again with the reported offset to read the next window.",
 	],
 	parameters: WebFetchParams,
+	annotations: { readOnlyHint: true, openWorldHint: true },
 
 	async execute(_toolCallId, params, signal, onUpdate) {
 		const start = Date.now();

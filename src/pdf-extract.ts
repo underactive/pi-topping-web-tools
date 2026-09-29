@@ -316,6 +316,7 @@ Usage notes:
 		"If pdf_extract reports no text layer, the PDF is scanned — say so rather than retrying.",
 	],
 	parameters: PdfExtractParams,
+	annotations: { readOnlyHint: true, openWorldHint: true },
 
 	async execute(_toolCallId, params, signal, onUpdate) {
 		const start = Date.now();

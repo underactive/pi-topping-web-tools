@@ -5,6 +5,12 @@
 ### Added
 
 - Documented pi 0.87+ `inputLimits.images.resize` for `web_browser` inline screenshots: how the active model's resize profile applies to tool-result images, a cost-saving example profile, the resize note appended to resized images, and a warning that aggressive resizing can make small page text unreadable.
+- `fetch_markdown`, `pdf_extract`, `web_browser`: declare pi 0.99 tool `annotations` so permission extensions can decide which calls to confirm. `fetch_markdown` and `pdf_extract` set `readOnlyHint` and `openWorldHint`; `web_browser` sets `openWorldHint` and `readOnlyHint: false`. Older pi versions ignore the field.
+
+### Changed
+
+- Tested against pi 0.99; host-permission gates also apply to codemode script calls.
+- Bumped the pinned `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` devDependencies from 0.86.0 to 0.99.1 so `npm run typecheck` accepts tool `annotations`.
 
 ## [0.2.3] - 2026-09-20
 
