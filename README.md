@@ -54,6 +54,13 @@ Start with `fetch_markdown` for efficient static content; use `web_browser` when
 | `pdf_extract` | Extract the text layer from a remote or local PDF, with page markers |
 | `web_browser` | Headless Chromium automation — navigate, click, type, screenshot, evaluate, logs, cookies |
 
+All three tools are `direct`-exposure and pi activates those on registration (`defaultActive` defaults to true), so nothing needs to be enabled.
+
+### Enabling and disabling tools
+
+- To hide a tool for a session, name it in `--exclude-tools` (or start with `--no-tools` and re-add what you want with `--tools`).
+- To change the startup set in your `settings.json`, use `defaultTools`. Bare names **replace** pi's defaults, so write `"+fetch_markdown"` to add a tool without dropping `read`, `bash`, `edit`, and `write`. On pi 0.99.2+, `/reload` activates tools **newly added** to `defaultTools` without a restart. The reverse does not follow: a tool **removed** from `defaultTools` stays active until you restart, and a tool you turned off during the session stays off. `--tools`, `--no-tools`, and `--no-builtin-tools` still override the setting, on reload as well.
+
 ## `fetch_markdown`
 
 Complements pi's built-in search-backed `web_fetch` with a lightweight, keyless fetch path for public documentation, READMEs, and articles:

@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Tested against pi 0.99.2. No break: the 0.99.1 to 0.99.2 extension API is additive only (`ToolNamespace.instructions`), and `pi-tui` and `pi-agent-core` declarations are unchanged.
+- Bumped the pinned `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` devDependencies from 0.99.1 to 0.99.2.
+
+### Fixed
+
+- Bounded tool result and status previews. A result that is one long logical line — minified JSON, raw HTML from `get_content` — rendered as a single unbounded logical line and word-wrapped into ~1250 screen lines. An expanded preview now keeps 10 logical lines of 200 characters, and a collapsed result whose `details` cannot be rendered is clipped to 200 characters.
+- `fetch_markdown`, `pdf_extract`, `web_browser`: attacker-controlled header fields are clipped to 200 characters before display. A hostile server could previously send a multi-megabyte HTTP reason phrase, and a page could carry a huge `<title>`; either one filled the screen from the collapsed one-line summary.
+
 ## [0.2.4] - 2026-09-29
 
 ### Added
