@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.4] - 2026-09-29
+
 ### Added
 
 - Documented pi 0.87+ `inputLimits.images.resize` for `web_browser` inline screenshots: how the active model's resize profile applies to tool-result images, a cost-saving example profile, the resize note appended to resized images, and a warning that aggressive resizing can make small page text unreadable.
