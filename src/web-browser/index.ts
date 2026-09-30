@@ -31,6 +31,7 @@ import {
 import { buildOriginChecker } from "./egress-policy.ts";
 import { checkUrlPermission, upgradeHttpToHttps, validateURL } from "./permissions.ts";
 import { requestHostPermission } from "../permission-prompt.ts";
+import { clipField, resultPreview, resultText } from "../render-preview.ts";
 import { listGrants } from "../permission-store.ts";
 import { permissionKey } from "../permissions.ts";
 import { isInsideCwd } from "../pdf-extract.ts";
@@ -291,8 +292,8 @@ export default function (pi: ExtensionAPI) {
 			const lines = [
 				"Web Browser:",
 				`  Status: ${info.isOpen ? "open" : "closed"}`,
-				`  URL: ${info.url || "(none)"}`,
-				`  Title: ${info.title?.replace(/[\u0000-\u001f\u007f]/g, " ") || "(none)"}`,
+				`  URL: ${info.url ? clipField(info.url) : "(none)"}`,
+				`  Title: ${info.title ? clipField(info.title.replace(/[\u0000-\u001f\u007f]/g, " ")) : "(none)"}`,
 				`  Tabs open: ${info.tabCount}`,
 				`  Console messages: ${info.consoleCount}`,
 				`  Network issues: ${info.networkCount}`,
@@ -1042,7 +1043,7 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (details.error) {
-				return new Text(theme.fg("error", details.error.slice(0, 120)), 0, 0);
+				return new Text(theme.fg("error", clipField(details.error)), 0, 0);
 			}
 
 			const imageBlock = result.content.find((c) => c.type === "image");
@@ -1062,9 +1063,14 @@ export default function (pi: ExtensionAPI) {
 			let text = "";
 			switch (details.action) {
 				case "navigate":
+					// The page title is attacker-controlled, so bound it like the body.
 					text = theme.fg(
 						"success",
-						`Navigated — ${details.title?.replace(/[\u0000-\u001f\u007f]/g, " ") ?? details.url ?? "ok"}`,
+						`Navigated — ${
+							details.title
+								? clipField(details.title.replace(/[\u0000-\u001f\u007f]/g, " "))
+								: clipField(details.url ?? "ok")
+						}`,
 					);
 					break;
 				case "get_content":
@@ -1095,15 +1101,12 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (expanded) {
-				const content = result.content.find((c) => c.type === "text");
-				if (content?.type === "text") {
-					const lines = content.text.split("\n", 16);
-					for (const line of lines.slice(0, 15)) {
-						text += `\n${theme.fg("dim", line)}`;
-					}
-					if (lines.length > 15) {
-						text += `\n${theme.fg("muted", "…")}`;
-					}
+				const preview = resultPreview(resultText(result.content));
+				for (const line of preview.lines) {
+					text += `\n${theme.fg("dim", line)}`;
+				}
+				if (preview.truncated) {
+					text += `\n${theme.fg("muted", "…")}`;
 				}
 				if (details.fullOutputPath) {
 					text += `\n${theme.fg("dim", `Full: ${details.fullOutputPath}`)}`;
