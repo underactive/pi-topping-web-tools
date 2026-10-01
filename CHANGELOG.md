@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.5] - 2026-09-30
+
 ### Changed
 
 - Tested against pi 0.99.2. No break: the 0.99.1 to 0.99.2 extension API is additive only (`ToolNamespace.instructions`), and `pi-tui` and `pi-agent-core` declarations are unchanged.
