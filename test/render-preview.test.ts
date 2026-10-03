@@ -1,11 +1,18 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import type { AgentToolResult, ExtensionAPI, ExtensionFactory, Theme, ToolDefinition } from "@earendil-works/pi-coding-agent";
-import { Text, type Component } from "@earendil-works/pi-tui";
+import type { Component } from "@earendil-works/pi-tui";
 import fetchMarkdownExtension from "../src/fetch-markdown.ts";
 import pdfExtractExtension from "../src/pdf-extract.ts";
 import webBrowserExtension from "../src/web-browser/index.ts";
-import { clipField, MAX_FIELD_CHARS, MAX_PREVIEW_LINE_CHARS, MAX_PREVIEW_LINES, resultPreview, resultText } from "../src/render-preview.ts";
+import {
+	BoundedPreview,
+	clipField,
+	MAX_FIELD_CHARS,
+	MAX_PREVIEW_CHARS,
+	MAX_VISUAL_PREVIEW_LINES,
+	resultText,
+} from "../src/render-preview.ts";
 
 const THEME = { fg: (_key: string, text: string) => text, bold: (text: string) => text } as unknown as Theme;
 
@@ -15,23 +22,36 @@ const RENDER_CONTEXT = {} as Parameters<NonNullable<ToolDefinition["renderResult
 /** A single logical line long enough to wrap into hundreds of screen lines. */
 const HUGE_LINE = "x".repeat(100_000);
 
-/** Worst case an expanded preview may produce: every kept line at the per-line clip. */
-const WORST_CASE_BODY = Array.from({ length: MAX_PREVIEW_LINES }, () => "y".repeat(MAX_PREVIEW_LINE_CHARS + 50)).join("\n");
+/**
+ * More logical lines than the row cap, each wider than any tested width, yet under
+ * {@link MAX_PREVIEW_CHARS} so the row cap is what cuts it; {@link HUGE_LINE} covers the
+ * character cap.
+ */
+const WORST_CASE_BODY = Array.from({ length: MAX_VISUAL_PREVIEW_LINES + 5 }, () => "y".repeat(300)).join("\n");
+
+/** The widest header a tool builds: one clipped field plus fetch_markdown's fixed text. */
+const WORST_CASE_HEADER = `Received 97.7KB (200 ${clipField(HUGE_LINE)}) cached truncated`;
+
+const MARKER = "… (truncated)";
 
 const WIDTHS = [80, 40];
 
 /**
- * Upper bound on the visual lines any preview may render at any tested width: every kept
- * line wraps to `ceil(chars / width)` rows, plus the header and one clip marker. Derived
- * from the implementation constants, so it tracks the code; {@link PREVIEW_BUDGET_CAP} is
- * what actually pins the budget.
+ * Upper bound on the rows any preview may render at any tested width: the body cap, a header
+ * holding one clipped field plus ~40 characters of fixed text with one row of word-wrap slack,
+ * then one marker row and one trailer row. Derived from the implementation constants, so it
+ * tracks the code; {@link PREVIEW_BUDGET_CAP} is what actually pins the budget.
  */
 const MAX_VISUAL_LINES = Math.max(
-	...WIDTHS.map((width) => (Math.ceil((MAX_PREVIEW_LINE_CHARS + 1) / width) + 1) * MAX_PREVIEW_LINES + Math.ceil((MAX_FIELD_CHARS + 1) / width)),
+	...WIDTHS.map((width) => MAX_VISUAL_PREVIEW_LINES + Math.ceil((MAX_FIELD_CHARS + 50) / width) + 1 + 2),
 );
 
-/** The derived bound must stay near one screen, or the budget needs a deliberate decision. */
-const PREVIEW_BUDGET_CAP = 80;
+/**
+ * The derived bound must stay near one screen, or the budget needs a deliberate decision. A
+ * typical result is 22 rows at 80 columns (header, 20 body rows, marker), inside a 24-row
+ * terminal; 30 is the clipped-header worst case at 40 columns.
+ */
+const PREVIEW_BUDGET_CAP = 30;
 
 test("the preview budget stays within one screen at every width", () => {
 	assert.ok(
@@ -69,46 +89,90 @@ function textResult(text: string, details?: unknown): AgentToolResult {
 	} as unknown as AgentToolResult;
 }
 
-test("resultPreview clips a single long logical line", () => {
-	const preview = resultPreview(HUGE_LINE);
-	assert.equal(preview.lines.length, 1);
-	assert.ok(preview.lines[0].length <= MAX_PREVIEW_LINE_CHARS + 1, `line was ${preview.lines[0].length} chars`);
-	// Only the line cap drives the marker; an in-place clip is already marked inline.
-	assert.equal(preview.truncated, false);
+/** Render a preview with a one-row header and return its rows without the width padding. */
+function preview(body: string, width: number, trailer?: string): string[] {
+	return new BoundedPreview({ header: "Header", body, marker: MARKER, trailer, theme: THEME })
+		.render(width)
+		.map((line) => line.trimEnd());
+}
+
+function numberedLines(count: number): string {
+	return Array.from({ length: count }, (_, i) => `line ${i}`).join("\n");
+}
+
+test("BoundedPreview caps a single long line at the row limit", () => {
+	for (const width of WIDTHS) {
+		const rows = preview(HUGE_LINE, width);
+		assert.equal(rows.length, MAX_VISUAL_PREVIEW_LINES + 2, `rendered ${rows.length} rows at width ${width}`);
+		assert.equal(rows.at(-1), MARKER);
+	}
 });
 
-test("resultPreview drops logical lines past the cap", () => {
-	const preview = resultPreview(Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n"));
-	assert.equal(preview.lines.length, MAX_PREVIEW_LINES);
-	assert.deepEqual(preview.lines[0], "line 0");
-	assert.equal(preview.truncated, true);
+test("BoundedPreview drops rows past the cap and keeps the leading ones", () => {
+	const rows = preview(numberedLines(40), 80);
+	assert.ok(rows.includes("line 0"));
+	assert.ok(rows.includes(`line ${MAX_VISUAL_PREVIEW_LINES - 1}`));
+	assert.ok(!rows.includes(`line ${MAX_VISUAL_PREVIEW_LINES}`), "preview exceeded its row cap");
+	assert.equal(rows.at(-1), MARKER);
 });
 
-test("resultPreview leaves short text intact", () => {
-	const preview = resultPreview("one\ntwo");
-	assert.deepEqual(preview.lines, ["one", "two"]);
-	assert.equal(preview.truncated, false);
+test("BoundedPreview leaves short text intact", () => {
+	assert.deepEqual(preview("one\ntwo", 80), ["Header", "one", "two"]);
 });
 
-test("resultPreview of an empty body is a single blank line", () => {
-	assert.deepEqual(resultPreview(""), { lines: [""], truncated: false });
+test("BoundedPreview of an empty body adds no marker", () => {
+	// The identity theme leaves no body row; the real theme's escape codes keep one blank row,
+	// as before. Assert only what holds under both.
+	const rows = preview("", 80);
+	assert.equal(rows[0], "Header");
+	assert.ok(!rows.includes(MARKER));
+	assert.ok(rows.length <= 2, `rendered ${rows.length} rows`);
 });
 
-test("resultPreview of a body at exactly the cap is not marked truncated", () => {
-	const preview = resultPreview(Array.from({ length: MAX_PREVIEW_LINES }, (_, i) => `line ${i}`).join("\n"));
-	assert.equal(preview.lines.length, MAX_PREVIEW_LINES);
-	assert.equal(preview.truncated, false);
+test("BoundedPreview of a body at exactly the row cap is not marked truncated", () => {
+	const rows = preview(numberedLines(MAX_VISUAL_PREVIEW_LINES), 80);
+	assert.equal(rows.length, MAX_VISUAL_PREVIEW_LINES + 1);
+	assert.ok(!rows.includes(MARKER));
 });
 
 test("the worst-case preview stays within its ceiling at every width", () => {
-	const text = resultPreview(WORST_CASE_BODY).lines.join("\n");
-	for (const width of WIDTHS) {
-		const lines = new Text(text, 0, 0).render(width);
-		assert.ok(
-			lines.length <= MAX_VISUAL_LINES,
-			`worst-case preview rendered ${lines.length} visual lines at width ${width}`,
-		);
+	for (const body of [WORST_CASE_BODY, HUGE_LINE]) {
+		const component = new BoundedPreview({
+			header: WORST_CASE_HEADER,
+			body,
+			marker: MARKER,
+			trailer: "Full: /tmp/out.txt",
+			theme: THEME,
+		});
+		for (const width of WIDTHS) {
+			const rows = component.render(width).length;
+			assert.ok(rows <= MAX_VISUAL_LINES, `worst-case preview rendered ${rows} visual lines at width ${width}`);
+		}
 	}
+});
+
+test("BoundedPreview marks a body cut by the character cap even when the rest fits", () => {
+	// At this width the kept characters fit on one row, so only the character cap can trigger the marker.
+	const rows = preview("a".repeat(MAX_PREVIEW_CHARS + 1), MAX_PREVIEW_CHARS);
+	assert.equal(rows.length, 3);
+	assert.equal(rows.at(-1), MARKER);
+});
+
+test("BoundedPreview shows the trailer last, after the marker", () => {
+	const rows = preview(numberedLines(40), 80, "Full: /tmp/out.txt");
+	assert.equal(rows.at(-1), "Full: /tmp/out.txt");
+	assert.equal(rows.at(-2), MARKER);
+	assert.deepEqual(preview("one", 80, "Full: /tmp/out.txt"), ["Header", "one", "Full: /tmp/out.txt"]);
+});
+
+test("BoundedPreview re-wraps when the width changes", () => {
+	const component = new BoundedPreview({ header: "Header", body: HUGE_LINE, marker: MARKER, theme: THEME });
+	const first = component.render(80);
+	assert.equal(first[1].trimEnd().length, 80);
+	assert.equal(component.render(80), first, "a repeat render at the same width should reuse the cached rows");
+	assert.equal(component.render(40)[1].trimEnd().length, 40);
+	component.invalidate();
+	assert.deepEqual(component.render(80), first);
 });
 
 test("clipField bounds long fields and keeps short ones whole", () => {
@@ -183,11 +247,10 @@ test("fetch_markdown still shows a short details-less message in full", () => {
 });
 
 test("fetch_markdown expanded preview shows the leading lines and marks truncation", () => {
-	const body = Array.from({ length: 40 }, (_, i) => `line ${i}`).join("\n");
 	const details = { url: "https://example.com", code: 200, codeText: "OK", bytes: 100_000, durationMs: 1 };
 	const tool = toolOf(fetchMarkdownExtension);
 	const component = tool.renderResult?.(
-		{ content: [{ type: "text", text: body }], details } as unknown as AgentToolResult,
+		{ content: [{ type: "text", text: numberedLines(40) }], details } as unknown as AgentToolResult,
 		{ expanded: true, isPartial: false },
 		THEME,
 		RENDER_CONTEXT,
@@ -195,7 +258,22 @@ test("fetch_markdown expanded preview shows the leading lines and marks truncati
 	const lines = component.render(80).map((line) => line.trimEnd());
 	assert.ok(lines[0].startsWith("Received "), `header was ${lines[0]}`);
 	assert.ok(lines.includes("line 0"));
-	assert.ok(lines.includes("line 9"));
-	assert.ok(!lines.includes("line 10"), "preview exceeded its line cap");
-	assert.ok(lines.includes("… (truncated)"));
+	assert.ok(lines.includes(`line ${MAX_VISUAL_PREVIEW_LINES - 1}`));
+	assert.ok(!lines.includes(`line ${MAX_VISUAL_PREVIEW_LINES}`), "preview exceeded its row cap");
+	assert.ok(lines.includes(MARKER));
+});
+
+test("web_browser expanded preview keeps the full-output path below the marker", () => {
+	const details = { action: "get_content", bytes: 100_000, fullOutputPath: "/tmp/pi-web-browser-x/out.html" };
+	const tool = toolOf(webBrowserExtension);
+	const component = tool.renderResult?.(
+		{ content: [{ type: "text", text: numberedLines(40) }], details } as unknown as AgentToolResult,
+		{ expanded: true, isPartial: false },
+		THEME,
+		RENDER_CONTEXT,
+	) as Component;
+	const lines = component.render(40).map((line) => line.trimEnd());
+	assert.equal(lines.at(-1), "Full: /tmp/pi-web-browser-x/out.html");
+	assert.equal(lines.at(-2), "…");
+	assert.ok(lines.length <= MAX_VISUAL_LINES, `rendered ${lines.length} visual lines`);
 });

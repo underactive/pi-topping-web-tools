@@ -31,7 +31,7 @@ import {
 import { buildOriginChecker } from "./egress-policy.ts";
 import { checkUrlPermission, upgradeHttpToHttps, validateURL } from "./permissions.ts";
 import { requestHostPermission } from "../permission-prompt.ts";
-import { clipField, resultPreview, resultText } from "../render-preview.ts";
+import { BoundedPreview, clipField, resultText } from "../render-preview.ts";
 import { listGrants } from "../permission-store.ts";
 import { permissionKey } from "../permissions.ts";
 import { isInsideCwd } from "../pdf-extract.ts";
@@ -1101,16 +1101,13 @@ export default function (pi: ExtensionAPI) {
 			}
 
 			if (expanded) {
-				const preview = resultPreview(resultText(result.content));
-				for (const line of preview.lines) {
-					text += `\n${theme.fg("dim", line)}`;
-				}
-				if (preview.truncated) {
-					text += `\n${theme.fg("muted", "…")}`;
-				}
-				if (details.fullOutputPath) {
-					text += `\n${theme.fg("dim", `Full: ${details.fullOutputPath}`)}`;
-				}
+				return new BoundedPreview({
+					header: text,
+					body: resultText(result.content),
+					marker: "…",
+					trailer: details.fullOutputPath ? `Full: ${details.fullOutputPath}` : undefined,
+					theme,
+				});
 			}
 
 			return new Text(text, 0, 0);

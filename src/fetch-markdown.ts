@@ -12,7 +12,7 @@ import { combineSignals } from "./abort-utils.ts";
 import { getBrowserHeaders } from "./browser-headers.ts";
 import { isPreapprovedHost, permissionKey } from "./permissions.ts";
 import { requestHostPermission } from "./permission-prompt.ts";
-import { clipField, resultPreview, resultText } from "./render-preview.ts";
+import { BoundedPreview, clipField, resultText } from "./render-preview.ts";
 import { MAX_URL_LENGTH, isLocalOrPrivateHost, upgradeHttpToHttps } from "./web-browser/permissions.ts";
 
 const MAX_HTTP_CONTENT_LENGTH = 25 * 1024 * 1024;
@@ -572,13 +572,7 @@ To complete your request, I need to fetch content from the redirected URL. Pleas
 		}
 
 		if (expanded) {
-			const preview = resultPreview(resultText(result.content));
-			for (const line of preview.lines) {
-				text += `\n${theme.fg("dim", line)}`;
-			}
-			if (preview.truncated) {
-				text += `\n${theme.fg("muted", "… (truncated)")}`;
-			}
+			return new BoundedPreview({ header: text, body: resultText(result.content), marker: "… (truncated)", theme });
 		}
 
 		return new Text(text, 0, 0);
