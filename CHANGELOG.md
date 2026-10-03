@@ -2,6 +2,16 @@
 
 ## [Unreleased]
 
+### Changed
+
+- Tested against pi 1.0.0. No break: the extension-facing declaration surface (`ToolDefinition`, `ExtensionAPI`, `ExtensionContext`, `ExtensionUIContext`, `defineTool`) is unchanged, `pi-ai`'s declaration surface is unchanged, and pi-tui's three changed declaration files are additive. The codemode tool description for each declared tool is now one line instead of a rendered TypeScript declaration, which shortens the prompt without changing what `promptGuidelines` contribute. `web_browser`'s `browser` status line is unaffected by the `tuiMode` default moving to `fullscreen`: the footer that renders it is mounted unconditionally and its renderer is unchanged.
+- Bumped the pinned `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` devDependencies from 0.99.2 to 1.0.0.
+- `web_browser`: added a prompt guideline that image content is not visible to a codemode script, so `screenshot` should be called directly, or with `toFile=true` to get a path the script can read.
+
+### Fixed
+
+- `fetch_markdown`, `pdf_extract`, `web_browser`: expanded result previews are bounded in wrapped rows at the render width instead of in characters. The 0.2.5 bound of 10 logical lines of 200 characters still rendered about 43 rows at 80 columns and 76 at 40; the body is now capped at 20 rows at any terminal width, using pi's `truncateToVisualLines`.
+
 ## [0.2.5] - 2026-09-30
 
 ### Changed
