@@ -142,6 +142,8 @@ When `screenshot` returns an inline result (`toFile` omitted or `false`), `web_b
 
 `toFile=true` and `/browser-screenshot` save the original PNG to disk and put only the path and dimensions in the tool result. The file is resized only if a later `read` or `@file` attachment sends it to the model.
 
+In codemode, a tool result exposes only its text blocks, so an inline `screenshot` reaches the script as its caption with no image bytes. Call `screenshot` directly from the session, or pass `toFile=true` and read the saved path from the script.
+
 The resize fields are:
 
 - `maxWidth` / `maxHeight`: pixel bounds (pi defaults to 2000×2000)

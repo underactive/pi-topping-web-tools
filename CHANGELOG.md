@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.2.6] - 2026-10-02
+
 ### Changed
 
 - Tested against pi 1.0.0. No break: the extension-facing declaration surface (`ToolDefinition`, `ExtensionAPI`, `ExtensionContext`, `ExtensionUIContext`, `defineTool`) is unchanged, `pi-ai`'s declaration surface is unchanged, and pi-tui's three changed declaration files are additive. The codemode tool description for each declared tool is now one line instead of a rendered TypeScript declaration, which shortens the prompt without changing what `promptGuidelines` contribute. `web_browser`'s `browser` status line is unaffected by the `tuiMode` default moving to `fullscreen`: the footer that renders it is mounted unconditionally and its renderer is unchanged.
