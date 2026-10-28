@@ -2,9 +2,15 @@
 
 ## [Unreleased]
 
+### Added
+
+- Optional decision gate, off by default. A Jev classifier recommends the cheapest tool for a URL: `fetch_markdown`, `web_browser`, or `pdf_extract`. A `.pdf` path, or a local, private-network or `file://` URL, is answered by a rule with no classifier call. In `decision.mode` `classifier-tool` (the default), a new `choose_tool` tool takes `url` and an optional `question`. It shares the configured `toolExposure` and the `pi-topping-web-tools` namespace. In `wrapper` mode, each `fetch_markdown` call is classified while the fetch runs, and a `[decision gate]` note is appended to the result when another tool fits better. The gate only recommends: a timeout, an error, or a missing credential gives no recommendation and never blocks a fetch. Timeouts open a circuit breaker with LiteLLM's semantics. The gate needs a credentialed classifier provider, sends the URL and question to it, and never sends page content.
+- `/web-tools-settings`: a TUI menu for the `decision` block (enabled, mode, classifier model, timeout, circuit breaker, cooldown). Applying it registers or withdraws `choose_tool` without `/reload`. The classifier row opens the shared classifier picker, which offers `auto` (the first credentialed Jev model) or any credentialed classifier.
+- The `decision` block in `~/.pi/agent/pi-topping-web-tools/settings.json`. Unknown modes and out-of-range numbers read as the defaults, and a provider without a model (or the reverse) reads as `auto`. Saving from the menu keeps `toolExposure` and any keys this version does not know.
+
 ### Changed
 
-- Depend on `@underactive/pi-topping-primitives` `^0.11.0` (was `^0.10.0`). No imports changed; only primitives 0.11.0 glyphs were added, with no visible behavior change.
+- Depend on `@underactive/pi-topping-primitives` `^0.12.0` (was `^0.10.0`). The decision gate imports its `./classifier` (model chain, `runClassification`, `CircuitBreaker`, classifier picker) and `./menu` subpaths. The settings store now reads the whole settings file rather than only `toolExposure`, with no change to how `toolExposure` is read.
 
 ## [0.3.0] - 2026-10-21
 

@@ -53,6 +53,7 @@ Start with `fetch_markdown` for efficient static content; use `web_browser` when
 | `fetch_markdown` | Fetch a public URL and return its content as markdown (cached, keyless) |
 | `pdf_extract` | Extract the text layer from a remote or local PDF, with page markers |
 | `web_browser` | Headless Chromium automation — navigate, click, type, screenshot, evaluate, logs, cookies |
+| `choose_tool` | Optional, off by default: recommends one of the three for a URL before fetching ([Decision gate](#decision-gate-optional)) |
 
 By default all three tools use `direct` exposure. Pi activates those on registration (`defaultActive` defaults to true), so a default install needs no extra `defaultTools` entry.
 
@@ -123,6 +124,47 @@ With `codemode.mode: "only"`, pi hides the direct declarations of active tools, 
   "codemode.inlineBudget": 4096
 }
 ```
+
+## Decision gate (optional)
+
+Off by default. When on, a Jev classifier recommends the cheapest tool that can read a URL: `fetch_markdown` for HTML the server returns, `web_browser` for client-rendered or interactive pages. The agent then does not have to launch Chromium only to find out whether a page needs it. The gate only recommends. It never fetches, never blocks a fetch, and on any failure the agent chooses as it would without it.
+
+**It needs credentials.** The rest of this bundle is keyless, but the gate needs a classifier provider that pi has credentials for. Jev is served by `typesafe`, `openrouter`, `cloudflare-workers-ai`, `vercel-ai-gateway` and `opencode`. Each classification is a billed call to that provider, which receives the URL and the question but never page content. Without credentials the gate gives no recommendations.
+
+Some URLs are answered by rules, with no classifier call. A path ending in `.pdf` gets `pdf_extract`. `localhost`, private-network hosts and `file://` get `web_browser`, because `fetch_markdown` refuses them.
+
+| `decision.mode` | Behavior |
+|-----------------|----------|
+| `classifier-tool` (default) | Registers `choose_tool` (`url`, optional `question`), which the model calls before fetching an unfamiliar URL. It uses the same `toolExposure` and namespace as the other tools. |
+| `wrapper` | No new tool. Each `fetch_markdown` call is classified while the fetch runs. When another tool fits better, a `[decision gate]` note is appended to the result, outside the `<untrusted-content>` block. Later windows (`offset` > 0) are not classified. The result waits for the classifier at most `timeoutMs` from the start of the call. |
+
+`/web-tools-settings` edits these settings in the TUI. Its classifier row opens the classifier picker from `@underactive/pi-topping-primitives/classifier`, which routesense's settings also use: `auto`, or any classifier model pi has credentials for. Applied changes take effect at once, and `choose_tool` is registered or withdrawn without `/reload`. Outside the TUI, edit `~/.pi/agent/pi-topping-web-tools/settings.json`:
+
+```json
+{
+  "toolExposure": "direct",
+  "decision": {
+    "enabled": true,
+    "mode": "classifier-tool",
+    "provider": "auto",
+    "model": "auto",
+    "timeoutMs": 3000,
+    "circuitBreakerEnabled": true,
+    "circuitBreakerCooldownSeconds": 30
+  }
+}
+```
+
+| Field | Default | Meaning |
+|-------|---------|---------|
+| `enabled` | `false` | Off: no classifier calls and no `choose_tool`. |
+| `mode` | `classifier-tool` | `classifier-tool` or `wrapper`. |
+| `provider`, `model` | `auto` | `auto` uses the first Jev model with credentials, in the provider order above. A pinned pair such as `openrouter` / `typesafe/jev-1.13` is used while it has credentials, and `auto` applies otherwise. Setting only one of the two reads as `auto`. |
+| `timeoutMs` | `3000` | Longest wait for one classification, 100 to 30000. A call that runs out gives no recommendation. |
+| `circuitBreakerEnabled` | `true` | After a classifier timeout, skip the classifier for the cooldown, then admit one probe. Other errors never open the circuit. |
+| `circuitBreakerCooldownSeconds` | `30` | 0 to 3600. |
+
+Unknown or out-of-range values read as the default. Hand edits reach `wrapper` mode and `choose_tool` calls immediately, because both read the file on every call. Registering or withdrawing `choose_tool` after a hand edit needs `/reload`.
 
 ## `fetch_markdown`
 
@@ -310,7 +352,8 @@ Commands:
 
 - **Preapproved hosts**: common documentation and dev sites are allowed without prompting. The allowlist lives in `src/permissions.ts` and is shared by all three tools.
 - **User confirmation**: other hosts prompt Allow once / Allow for this session / Allow for 1 day / Allow for 1 week / Allow for 30 days / Deny. For `web_browser` navigation, Allow once becomes a browser-session grant because request-level enforcement must authorize the loaded document's later requests. Parallel tool calls that each need a prompt rely on pi 1.4.0, which stacks concurrent extension dialogs so each one settles; on older pi a second dialog replaced the first and the first prompt never settled.
-- **Tool annotations**: on pi 0.99+, `fetch_markdown` and `pdf_extract` declare `readOnlyHint` and `openWorldHint`, and `web_browser` declares `openWorldHint` with `readOnlyHint: false`, for permission extensions that confirm calls by hint. The host confirmation above applies regardless of how another extension treats the hints.
+- **Tool annotations**: on pi 0.99+, `fetch_markdown` and `pdf_extract` declare `readOnlyHint` and `openWorldHint`, and `web_browser` declares `openWorldHint` with `readOnlyHint: false`, for permission extensions that confirm calls by hint. `choose_tool` declares `readOnlyHint: true` and `openWorldHint: false`: it never contacts the URL's host.
+- **Decision gate**: off by default. When on, the URL and the question (`choose_tool`) or `prompt` (`fetch_markdown` in `wrapper` mode) are sent to the configured classifier provider. Page content is never sent. A `fetch_markdown` call that the host confirmation blocks is not classified. The host confirmation above applies regardless of how another extension treats the hints.
 - **URL validation**: all tools reject embedded credentials and overlong URLs. `fetch_markdown` and `pdf_extract` additionally reject loopback, private, and link-local hosts and any non-HTTP(S) scheme on a `url`. `web_browser` accepts `localhost`, private IPs, and `file://` paths so it can drive local dev servers and local HTML — each still prompts for confirmation unless session-approved or covered by a saved durable grant.
 - **Local file resolution**: `pdf_extract` resolves a `path` through `realpath` before any check, so a symlink pointing outside the working directory is treated as outside and prompts. Directories, FIFOs, and devices are rejected, and the size limit is enforced from `stat` before any bytes are read. `web_browser` `upload_file` follows the same rule: files outside the working directory prompt for confirmation (session-scoped) before they are read.
 - **Isolated browser context and routed egress**: each session uses a fresh Chromium context (no shared profile/cookies with your system browser). HTTP(S) requests, redirect targets, client navigations, popups, and WebSocket connections are checked against live `web_browser` permissions; service workers are disabled.
