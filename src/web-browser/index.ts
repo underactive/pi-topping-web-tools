@@ -353,9 +353,11 @@ export default function (pi: ExtensionAPI) {
 		description:
 			"Automate a headless Chromium browser. Actions: navigate, screenshot (toFile), click, type (mode fill|press), hover, press, select_option, set_viewport, evaluate, get_content, get_text, get_markdown, wait_for, get_accessibility_snapshot, get_console_logs, get_network_logs, get_cookies, set_cookies, go_back, go_forward, reload, scroll, drag, upload_file, set_dialog_behavior, get_dialog_logs, list_tabs, switch_tab, close. Returns page content, screenshots (PNG base64 or file path), console logs, network logs, dialog logs, tab lists, or cookie metadata (values redacted).",
 		parameters: Type.Object({
-			action: StringEnum(ACTIONS, {
-				description: "Browser action to perform",
-			}),
+			action: Type.Unsafe<WebBrowserAction>(
+				StringEnum(ACTIONS, {
+					description: "Browser action to perform",
+				}),
+			),
 			url: Type.Optional(
 				Type.String({
 					description:
@@ -394,10 +396,12 @@ export default function (pi: ExtensionAPI) {
 				Type.Number({ description: "Tab index to switch to, from list_tabs (action: switch_tab)" }),
 			),
 			dialogAction: Type.Optional(
-				StringEnum(["accept", "dismiss"] as const, {
-					description:
-						"How to resolve future JS dialogs (alert/confirm/prompt) for the rest of the session (action: set_dialog_behavior, default dismiss)",
-				}),
+				Type.Unsafe<"accept" | "dismiss">(
+					StringEnum(["accept", "dismiss"] as const, {
+						description:
+							"How to resolve future JS dialogs (alert/confirm/prompt) for the rest of the session (action: set_dialog_behavior, default dismiss)",
+					}),
+				),
 			),
 			promptText: Type.Optional(
 				Type.String({
@@ -423,15 +427,19 @@ export default function (pi: ExtensionAPI) {
 				Type.Number({ description: "Viewport height in pixels (action: set_viewport)" }),
 			),
 			mode: Type.Optional(
-				StringEnum(["fill", "press"] as const, {
-					description:
-						"Typing mode (action: type, default fill). fill clears the field first; press types key-by-key and appends to existing input.",
-				}),
+				Type.Unsafe<"fill" | "press">(
+					StringEnum(["fill", "press"] as const, {
+						description:
+							"Typing mode (action: type, default fill). fill clears the field first; press types key-by-key and appends to existing input.",
+					}),
+				),
 			),
 			state: Type.Optional(
-				StringEnum(["visible", "hidden", "attached", "detached"] as const, {
-					description: "Wait state (action: wait_for, default visible)",
-				}),
+				Type.Unsafe<"visible" | "hidden" | "attached" | "detached">(
+					StringEnum(["visible", "hidden", "attached", "detached"] as const, {
+						description: "Wait state (action: wait_for, default visible)",
+					}),
+				),
 			),
 			networkidle: Type.Optional(
 				Type.Boolean({ description: "Wait for network idle (action: wait_for)" }),
@@ -458,7 +466,9 @@ export default function (pi: ExtensionAPI) {
 						path: Type.Optional(Type.String()),
 						httpOnly: Type.Optional(Type.Boolean()),
 						secure: Type.Optional(Type.Boolean()),
-						sameSite: Type.Optional(StringEnum(["Strict", "Lax", "None"] as const)),
+						sameSite: Type.Optional(
+							Type.Unsafe<"Strict" | "Lax" | "None">(StringEnum(["Strict", "Lax", "None"] as const)),
+						),
 					}),
 					{ description: "Cookies to set (action: set_cookies); each needs url or domain+path" },
 				),

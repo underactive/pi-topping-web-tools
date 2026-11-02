@@ -11,6 +11,12 @@
 ### Changed
 
 - Depend on `@underactive/pi-topping-primitives` `^0.12.0` (was `^0.10.0`). The decision gate imports its `./classifier` (model chain, `runClassification`, `CircuitBreaker`, classifier picker) and `./menu` subpaths. The settings store now reads the whole settings file rather than only `toolExposure`, with no change to how `toolExposure` is read.
+- Tested against pi 1.5.0. Tool argument validation now runs on `@earendil-works/pi-schema`. These tools declare only JSON-Schema-compatible TypeBox primitives (`Object`, `String`, `Number`, `Boolean`, `Optional`, `Array`) and string enums, with no `Refine`, codecs, `Format.Set`, `BigInt`, `Undefined` or `Void`. Pi 1.5.0 now coerces plain JSON Schema arguments: numeric strings to numbers, `"true"` to `true`, a scalar to a one-item array, and `null` dropped for optional fields. That doesn't change what the tools accept, because each handler reads optionals through `??` or an `undefined` check and already handles the coerced shapes.
+- Bumped the pinned `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` devDependencies from 1.4.0 to 1.5.0.
+
+### Fixed
+
+- `web_browser`: the `action`, `dialogAction`, `mode`, `state`, and `cookies[].sameSite` parameter schemas are wrapped in `Type.Unsafe`, so their inferred types stay literal unions. In pi-ai 1.5.0, `StringEnum()` returns pi-schema's `Schema<T>`, which TypeBox `Static<>` reads as `unknown`. This fixes six `tsc` errors. The JSON Schema sent to the model and runtime validation are unchanged.
 
 ## [0.3.0] - 2026-10-21
 
