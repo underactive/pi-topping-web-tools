@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-11-03
+
 ### Added
 
 - Optional decision gate, off by default. A Jev classifier recommends the cheapest tool for a URL: `fetch_markdown`, `web_browser`, or `pdf_extract`. A `.pdf` path, or a local, private-network or `file://` URL, is answered by a rule with no classifier call. In `decision.mode` `classifier-tool` (the default), a new `choose_tool` tool takes `url` and an optional `question`. It shares the configured `toolExposure` and the `pi-topping-web-tools` namespace. In `wrapper` mode, each `fetch_markdown` call is classified while the fetch runs, and a `[decision gate]` note is appended to the result when another tool fits better. The gate only recommends: a timeout, an error, or a missing credential gives no recommendation and never blocks a fetch. Timeouts open a circuit breaker with LiteLLM's semantics. The gate needs a credentialed classifier provider, sends the URL and question to it, and never sends page content.
@@ -10,7 +12,7 @@
 
 ### Changed
 
-- Depend on `@underactive/pi-topping-primitives` `^0.12.0` (was `^0.10.0`). The decision gate imports its `./classifier` (model chain, `runClassification`, `CircuitBreaker`, classifier picker) and `./menu` subpaths. The settings store now reads the whole settings file rather than only `toolExposure`, with no change to how `toolExposure` is read.
+- Depend on `@underactive/pi-topping-primitives` `^0.12.1` (was `^0.10.0`). The decision gate imports its `./classifier` (model chain, `runClassification`, `CircuitBreaker`, classifier picker) and `./menu` subpaths. The settings store now reads the whole settings file rather than only `toolExposure`, with no change to how `toolExposure` is read.
 - Tested against pi 1.5.0. Tool argument validation now runs on `@earendil-works/pi-schema`. These tools declare only JSON-Schema-compatible TypeBox primitives (`Object`, `String`, `Number`, `Boolean`, `Optional`, `Array`) and string enums, with no `Refine`, codecs, `Format.Set`, `BigInt`, `Undefined` or `Void`. Pi 1.5.0 now coerces plain JSON Schema arguments: numeric strings to numbers, `"true"` to `true`, a scalar to a one-item array, and `null` dropped for optional fields. That doesn't change what the tools accept, because each handler reads optionals through `??` or an `undefined` check and already handles the coerced shapes.
 - Bumped the pinned `@earendil-works/pi-ai`, `@earendil-works/pi-coding-agent`, and `@earendil-works/pi-tui` devDependencies from 1.4.0 to 1.5.0.
 
